@@ -219,14 +219,14 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			String hashString = hash.toString();
 			try (Payload payload = new FilePayload(f)) {
 				payload.getContentMetadata().setContentType(contentType);
-				String blobPath = Poolmgr.hashToPath(hashString);
-				BlobMetadata meta = delegate().blobMetadata(bucket, blobPath);
+				String blobHash = Poolmgr.hashToPath(hashString);
+				BlobMetadata meta = delegate().blobMetadata(bucket, blobHash);
 				if (meta != null) {
 					String etag = meta.getETag();
 					Queries.putMap(dataSource, identity, blobName, hash);
 					return etag;
 				}
-				Blob blob2 = blobBuilder(blobPath)
+				Blob blob2 = blobBuilder(blobHash)
 						.payload(payload)
 						.userMetadata(blob.getMetadata().getUserMetadata())
 						.build();
