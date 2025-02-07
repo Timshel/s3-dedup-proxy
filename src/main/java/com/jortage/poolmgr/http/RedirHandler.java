@@ -41,7 +41,6 @@ public final class RedirHandler extends AbstractHandler {
 		List<String> split = REDIR_SPLITTER.splitToList(target);
 		if (split.size() != 2) {
 			response.sendError(400);
-			return;
 		} else {
 			String identity = split.get(0);
 			String name = split.get(1);
