@@ -72,7 +72,7 @@ public final class RivetHandler extends AbstractHandler {
 	private static final String UA = "Jortage Rivet (+https://jortage.com/rivet.html)";
 	
 	private enum Temperature {
-		FREEZING, COLD, WARM, HOT, SCALDING;
+		FREEZING, COLD, WARM, HOT, SCALDING
 	}
 	
 	private enum RivetResult {
