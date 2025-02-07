@@ -94,7 +94,7 @@ public class Poolmgr {
 			QueuedThreadPool pool = (QueuedThreadPool)s3ProxyServer.getThreadPool();
 			pool.setName("Jetty-Common");
 			
-			// Configure blob store locator for authentication
+			// Configure blob store locator?
 			s3Proxy.setBlobStoreLocator((identity, container, blob) -> {
 				String secret = users.get(identity);
 				if (secret != null) {
