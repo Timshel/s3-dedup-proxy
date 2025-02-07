@@ -21,7 +21,7 @@ services:
       start_period: 20s
       interval: 30s
     ports:
-      - 5432:5432
+      - "5432:5432"
     environment:
       - POSTGRES_USER=s3proxy
       - POSTGRES_PASSWORD=s3proxy
@@ -31,6 +31,6 @@ services:
     container_name: s3dedupproxy_s3proxy
     image: andrewgaul/s3proxy
     ports:
-      - 8080:80
+      - "8080:80"
     environment:
       - S3PROXY_AUTHORIZATION=none
