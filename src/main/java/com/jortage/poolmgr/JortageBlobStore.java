@@ -211,7 +211,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			String contentType = blob.getPayload().getContentMetadata().getContentType();
 			HashCode hash;
 			try (InputStream is = blob.getPayload().openStream();
-					FileOutputStream fos = Files.newOutputStream(tempPath)) {
+					FileOutputStream fos = Files.newOutputStream(f)) {
 				HashingOutputStream hos = new HashingOutputStream(Hashing.sha512(), fos);
 				FileReprocessor.reprocess(is, hos);
 				hash = hos.hash();
