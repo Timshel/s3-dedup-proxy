@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
 import java.util.Properties;
+import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
@@ -243,9 +244,13 @@ public class Poolmgr {
 		}
 	}
 
+	private static final Pattern HASH_PATTERN = Pattern.compile("[a-f0-9]+");
 	public static String hashToPath(String hash) {
-		return "blobs/"+hash.substring(0, 1)+"/"+hash.substring(1, 4)+"/"+hash;
-	}
+		if (hash == null || !HASH_PATTERN.matcher(hash).matches()) {
+			throw new IllegalArgumentException("Invalid hash format");
+        	}
+        	return "blobs/"+hash.substring(0, 1)+"/"+hash.substring(1, 4)+"/"+hash;
+    	}
 
 	public static void checkReadOnly() {
 		if (readOnly) throw new IllegalStateException("Currently in read-only maintenance mode; try again later");
