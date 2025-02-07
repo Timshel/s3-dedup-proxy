@@ -244,6 +244,25 @@ public class Poolmgr {
 	}
 
 	public static String hashToPath(String hash) {
+		// Check string is not null
+		if (hash == null) {
+			throw new IllegalArgumentException("Hash cannot be null");
+		}
+	
+		// Check string length of hash (too small or too long)
+		if (hash.length() < 4) {
+			throw new IllegalArgumentException("Hash must be at least 4 characters long");
+		}
+		if (hash.length() > 128) {
+			throw new IllegalArgumentException("Hash length exceeds maximum allowed length");
+		}
+		
+		// Check string only contains hexadecimal ASCII characters (+ protects against ../ in theory)
+		// TODO Pattern.compile the REGEX
+		if (!hash.matches("^[0-9a-fA-F]+$")) {
+			throw new IllegalArgumentException("Hash must contain only hexadecimal characters");
+		}
+	
 		return "blobs/"+hash.substring(0, 1)+"/"+hash.substring(1, 4)+"/"+hash;
 	}
 
