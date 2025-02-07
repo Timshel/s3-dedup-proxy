@@ -72,7 +72,7 @@ public final class RivetHandler extends AbstractHandler {
 	private static final String UA = "Jortage Rivet (+https://jortage.com/rivet.html)";
 	
 	private enum Temperature {
-		FREEZING, COLD, WARM, HOT, SCALDING;
+		FREEZING, COLD, WARM, HOT, SCALDING
 	}
 	
 	private enum RivetResult {
@@ -329,7 +329,6 @@ public final class RivetHandler extends AbstractHandler {
 				sendJson(res, obj);
 			} catch (Exception e) {
 				jsonExceptionError(res, e, "sourceUrl: "+sourceUrl, "identity: "+rreq.identity, "hash: "+hash);
-				return;
 			}
 		} else if (target.startsWith("/upload/")) {
 			if (Poolmgr.readOnly) {
@@ -403,7 +402,6 @@ public final class RivetHandler extends AbstractHandler {
 				sendJson(res, obj);
 			} catch (Exception e) {
 				jsonExceptionError(res, e, "identity: "+rreq.identity, "target: "+target+(req.getQueryString() == null ? "" : "?"+req.getQueryString()));
-				return;
 			}
 		} else {
 			res.sendError(404);
