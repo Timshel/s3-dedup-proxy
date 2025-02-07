@@ -61,6 +61,7 @@ public class Poolmgr {
 
 	public static void start(GlobalConfig config) throws Exception {
 		try {
+			// Initialize dumps store for filesystem operations
 			Properties dumpsProps = new Properties();
 			dumpsProps.setProperty(FilesystemConstants.PROPERTY_BASEDIR, "dumps");
 			dumpsStore = ContextBuilder.newBuilder("filesystem")
@@ -70,7 +71,8 @@ public class Poolmgr {
 					
 			Stopwatch initSw = Stopwatch.createStarted();
 			loadConfig(config);
-	
+			
+			// Start S3 proxy server
 			System.err.print("Starting S3 server... ");
 			System.err.flush();
 			S3Proxy s3Proxy = S3Proxy.builder()
@@ -84,19 +86,20 @@ public class Poolmgr {
 					.ignoreUnknownHeaders(true)
 					.build();
 			
-			// excuse me, this is mine now
+            		// Custom handler configuration
 			Field serverField = S3Proxy.class.getDeclaredField("server");
 			serverField.setAccessible(true);
 			Server s3ProxyServer = (Server) serverField.get(s3Proxy);
 			s3ProxyServer.setHandler(new OuterHandler(s3ProxyServer.getHandler()));
 			QueuedThreadPool pool = (QueuedThreadPool)s3ProxyServer.getThreadPool();
 			pool.setName("Jetty-Common");
-	
+			
+			// Configure blob store locator for authentication
 			s3Proxy.setBlobStoreLocator((identity, container, blob) -> {
 				String secret = users.get(identity);
 				if (secret != null) {
 					return Maps.immutableEntry(secret,
-							new JortageBlobStore(backingBlobStore, dumpsStore, config.backend().bucket(), identity, dataSource));
+						new JortageBlobStore(backingBlobStore, dumpsStore, config.backend().bucket(), identity, dataSource));
 				} else {
 					throw new RuntimeException("Access denied");
 				}
@@ -104,7 +107,8 @@ public class Poolmgr {
 	
 			s3Proxy.start();
 			System.err.println("ready on http://localhost:23278");
-	
+
+			// Start redirector server
 			System.err.print("Starting redirector server... ");
 			System.err.flush();
 			Server redir = new Server(pool);
@@ -116,6 +120,7 @@ public class Poolmgr {
 			redir.start();
 			System.err.println("ready on http://localhost:23279");
 			
+			// Start Rivet server (optional)
 			if( config.rivet().enabled() ) {
 				System.err.print("Starting Rivet server... ");
 				System.err.flush();
@@ -130,7 +135,8 @@ public class Poolmgr {
 			} else {
 				System.err.println("Not starting Rivet server.");
 			}
-			
+
+			// Backup signal handler
 			System.err.print("Registering SIGALRM handler for backups... ");
 			System.err.flush();
 			try {
@@ -199,7 +205,6 @@ public class Poolmgr {
 
 	/**
  	* Returns the appropriate plural suffix ('s' or '') based on a count.
- 	* 
  	* @param count The number of items
  	* @return Empty string for count of 1, 's' otherwise
  	*/
@@ -207,6 +212,10 @@ public class Poolmgr {
 		return i == 1 ? "" : "s";
 	}
 
+	/**
+	* Loads configuration settings and initializes blob stores.
+	* @param config Global configuration settings
+	*/	
 	private static void loadConfig(GlobalConfig config) {
 		try {
 			System.err.print("Constructing blob stores...");
@@ -231,7 +240,12 @@ public class Poolmgr {
 			e.printStackTrace();
 		}
 	}
-
+    
+	/**
+	* Creates a new BlobStore instance based on the provided configuration.
+	* @param conf Backend configuration settings
+	* @return Configured BlobStore instance
+	*/
 	private static BlobStore createBlobStore(BackendConfig conf) {
 		String protocol = conf.protocol();
 		if ("s3".equals(protocol)) protocol = "aws-s3";
@@ -252,7 +266,6 @@ public class Poolmgr {
 	/**
 	 * Converts a hash string into a directory path structure.
  	* The path follows the pattern: "blobs/[first char]/[next 3 chars]/[full hash]"
- 	* 
  	* @param hash The hash string to convert into a path
  	* @return The formatted path string
  	* @throws IllegalArgumentException if hash is null, invalid length, or contains invalid characters
@@ -280,6 +293,10 @@ public class Poolmgr {
 		return "blobs/"+hash.substring(0, 1)+"/"+hash.substring(1, 4)+"/"+hash;
 	}
 
+	/**
+	* Checks if the system is in read-only mode and throws an exception if it is.
+	* @throws IllegalStateException if system is in read-only mode
+	*/
 	public static void checkReadOnly() {
 		if (readOnly) throw new IllegalStateException("Currently in read-only maintenance mode; try again later");
 	}
