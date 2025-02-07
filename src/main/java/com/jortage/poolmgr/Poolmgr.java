@@ -197,6 +197,12 @@ public class Poolmgr {
 		}
 	}
 
+	/**
+ 	* Returns the appropriate plural suffix ('s' or '') based on a count.
+ 	* 
+ 	* @param count The number of items
+ 	* @return Empty string for count of 1, 's' otherwise
+ 	*/
 	private static String s(int i) {
 		return i == 1 ? "" : "s";
 	}
@@ -243,6 +249,14 @@ public class Poolmgr {
 		}
 	}
 
+	/**
+	 * Converts a hash string into a directory path structure.
+ 	* The path follows the pattern: "blobs/[first char]/[next 3 chars]/[full hash]"
+ 	* 
+ 	* @param hash The hash string to convert into a path
+ 	* @return The formatted path string
+ 	* @throws IllegalArgumentException if hash is null, invalid length, or contains invalid characters
+ 	*/
 	public static String hashToPath(String hash) {
 		// Check string is not null
 		if (hash == null) {
