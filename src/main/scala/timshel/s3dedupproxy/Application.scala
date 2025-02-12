@@ -30,6 +30,7 @@ case class Application(
 
 object Application extends IOApp {
 
+  /**  */
   def run(args: List[String]): IO[ExitCode] = {
     default().use { app =>
       app.start()
