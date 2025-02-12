@@ -45,6 +45,7 @@ import com.google.common.hash.HashCode;
 import com.google.common.net.UrlEscapers;
 
 import timshel.s3dedupproxy.BackendConfig;
+import timshel.s3dedupproxy.Database;
 import timshel.s3dedupproxy.GlobalConfig;
 
 public class Poolmgr {
@@ -58,7 +59,7 @@ public class Poolmgr {
 	
 	public static final Table<String, String, Object> provisionalMaps = HashBasedTable.create();
 
-	public static void start(GlobalConfig config) throws Exception {
+	public static void start(GlobalConfig config, Database db) throws Exception {
 		try {
 			Properties dumpsProps = new Properties();
 			dumpsProps.setProperty(FilesystemConstants.PROPERTY_BASEDIR, "dumps");
@@ -95,7 +96,7 @@ public class Poolmgr {
 				String secret = users.get(identity);
 				if (secret != null) {
 					return Maps.immutableEntry(secret,
-							new JortageBlobStore(backingBlobStore, dumpsStore, config.backend().bucket(), identity, dataSource));
+							new JortageBlobStore(backingBlobStore, dumpsStore, config.backend().bucket(), identity, db));
 				} else {
 					throw new SecurityException("Access denied");
 				}
@@ -111,7 +112,7 @@ public class Poolmgr {
 			redirConn.setHost("localhost");
 			redirConn.setPort(23279);
 			redir.addConnector(redirConn);
-			redir.setHandler(new OuterHandler(new RedirHandler(config.backend().publicHost(), dumpsStore)));
+			redir.setHandler(new OuterHandler(new RedirHandler(config.backend().publicHost(), dumpsStore, db)));
 			redir.start();
 			System.err.println("ready on http://localhost:23279");
 			
@@ -123,7 +124,7 @@ public class Poolmgr {
 				rivetConn.setHost("localhost");
 				rivetConn.setPort(23280);
 				rivet.addConnector(rivetConn);
-				rivet.setHandler(new OuterHandler(new RivetHandler(config.backend().bucket(), config.backend().publicHost())));
+				rivet.setHandler(new OuterHandler(new RivetHandler(config.backend().bucket(), config.backend().publicHost(), db)));
 				rivet.start();
 				System.err.println("ready on http://localhost:23280");
 			} else {

@@ -13,12 +13,13 @@ import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 
 import com.jortage.poolmgr.Poolmgr;
-import com.jortage.poolmgr.Queries;
 
 import com.google.common.base.Splitter;
 import com.google.common.hash.HashCode;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
+
+import timshel.s3dedupproxy.Database;
 
 public final class RedirHandler extends AbstractHandler {
 	private static final BaseEncoding B64URLNP = BaseEncoding.base64Url().omitPadding();
@@ -28,10 +29,12 @@ public final class RedirHandler extends AbstractHandler {
 
 	private String publicHost;
 	private final BlobStore dumpsStore;
+	private Database db;
 
-	public RedirHandler(String publicHost, BlobStore dumpsStore) {
+	public RedirHandler(String publicHost, BlobStore dumpsStore, Database db) {
 		this.publicHost = publicHost;
 		this.dumpsStore = dumpsStore;
+		this.db = db;
 	}
 
 
@@ -78,7 +81,7 @@ public final class RedirHandler extends AbstractHandler {
 				if (waited) {
 					response.setHeader("Jortage-Waited", "true");
 				}
-				HashCode hash = Queries.getMap(Poolmgr.dataSource, identity, name);
+				HashCode hash = db.getMappingHashU(identity, name);
 				response.setHeader("Cache-Control", "public");
 				if (Poolmgr.useNewUrls) {
 					int dotIdx = name.indexOf('.', name.lastIndexOf('/')+1);

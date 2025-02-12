@@ -28,7 +28,7 @@ class PgIntegrationTests extends CatsEffectSuite {
         _ <- a.database.putMapping("A", "B", hashCode)
         _ <- assertIO(a.database.getMappingHash("A", "B"), Some(hashCode))
         _ <- assertIO(a.database.countMappings(hashCode), 1L)
-        _ <- a.database.delMapping("A", "B")
+        _ <- assertIO(a.database.delMapping("A", "B"), 1)
         _ <- assertIO(a.database.countMappings(hashCode), 0L)
       } yield ()
     }
@@ -41,7 +41,7 @@ class PgIntegrationTests extends CatsEffectSuite {
       for {
         _ <- a.database.putMetadata(hashCode, 10L)
         _ <- a.database.putMetadata(hashCode, 12L)
-        _ <- a.database.delMetadata(hashCode)
+        _ <- assertIO(a.database.delMetadata(hashCode), 1)
       } yield ()
     }
   }
@@ -52,7 +52,7 @@ class PgIntegrationTests extends CatsEffectSuite {
 
       for {
         _ <- a.database.putPending(hashCode)
-        _ <- a.database.delPending(hashCode)
+        _ <- assertIO(a.database.delPending(hashCode), 1)
       } yield ()
     }
   }
@@ -65,7 +65,7 @@ class PgIntegrationTests extends CatsEffectSuite {
         _ <- a.database.putMultipart("toto", "file_key", "temp_file")
         _ <- assertIO(a.database.getMultipartFile("toto", "file_key"), Some("temp_file"))
         _ <- assertIO(a.database.getMultipartKey("temp_file"), Some("file_key"))
-        _ <- a.database.delMultipart("temp_file")
+        _ <- assertIO(a.database.delMultipart("temp_file"), 1)
         _ <- assertIO(a.database.getMultipartKey("temp_file"), None)
       } yield ()
     }

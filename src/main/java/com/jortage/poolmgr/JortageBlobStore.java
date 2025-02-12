@@ -48,18 +48,20 @@ import com.google.common.hash.HashingOutputStream;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.CountingOutputStream;
 
+import timshel.s3dedupproxy.Database;
+
 public class JortageBlobStore extends ForwardingBlobStore {
 	private final BlobStore dumpsStore;
 	private final String identity;
 	private final String bucket;
-	private final DataSource dataSource;
+	private final Database db;
 
-	public JortageBlobStore(BlobStore blobStore, BlobStore dumpsStore, String bucket, String identity, DataSource dataSource) {
+	public JortageBlobStore(BlobStore blobStore, BlobStore dumpsStore, String bucket, String identity, Database db) {
 		super(blobStore);
 		this.dumpsStore = dumpsStore;
 		this.bucket = bucket;
 		this.identity = identity;
-		this.dataSource = dataSource;
+		this.db = db;
 	}
 
 	private void checkContainer(String container) {
@@ -70,7 +72,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	private String getMapPath(String container, String name) {
 		checkContainer(container);
-		return Poolmgr.hashToPath(Queries.getMap(dataSource, container, name));
+		return Poolmgr.hashToPath(db.getMappingHashU(container, name));
 	}
 
 	private boolean isDump(String name) {
@@ -226,7 +228,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				BlobMetadata meta = delegate().blobMetadata(bucket, hash_path);
 				if (meta != null) {
 					String etag = meta.getETag();
-					Queries.putMap(dataSource, identity, blobName, hash);
+					db.putMappingU(identity, blobName, hash);
 					return etag;
 				}
 				Blob blob2 = blobBuilder(hash_path)
@@ -234,9 +236,9 @@ public class JortageBlobStore extends ForwardingBlobStore {
 						.userMetadata(blob.getMetadata().getUserMetadata())
 						.build();
 				String etag = delegate().putBlob(bucket, blob2, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
-				Queries.putPendingBackup(dataSource, hash);
-				Queries.putMap(dataSource, identity, blobName, hash);
-				Queries.putFilesize(dataSource, hash, f.length());
+				db.putPendingU(hash);
+				db.putMappingU(identity, blobName, hash);
+				db.putMetadataU(hash, f.length());
 				return etag;
 			}
 		} catch (IOException e) {
@@ -262,8 +264,8 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			return dumpsStore.copyBlob(fromContainer, fromName, toContainer, toName, options);
 		}
 		// javadoc says options are ignored, so we ignore them too
-		HashCode hash = Queries.getMap(dataSource, identity, fromName);
-		Queries.putMap(dataSource, identity, toName, hash);
+		HashCode hash = db.getMappingHashU(identity, fromName);
+		db.putMappingU(identity, toName, hash);
 		return blobMetadata(bucket, Poolmgr.hashToPath(hash)).getETag();
 	}
 
@@ -279,18 +281,18 @@ public class JortageBlobStore extends ForwardingBlobStore {
 		mbm.setName(tempfile);
 		mbm.getUserMetadata().put("jortage-creator", identity);
 		mbm.getUserMetadata().put("jortage-originalname", blobMetadata.getName());
-		Queries.putMultipart(dataSource, identity, blobMetadata.getName(), tempfile);
+		db.putMultipartU(identity, blobMetadata.getName(), tempfile);
 		return delegate().initiateMultipartUpload(bucket, mbm, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	private MultipartUpload mask(MultipartUpload mpu) {
 		checkContainer(mpu.containerName());
-		return MultipartUpload.create(bucket, Queries.getMultipart(dataSource, identity, mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
+		return MultipartUpload.create(bucket, db.getMultipartFileU(identity, mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	private MultipartUpload revmask(MultipartUpload mpu) {
 		checkContainer(mpu.containerName());
-		return MultipartUpload.create(bucket, Queries.getMultipartRev(dataSource, mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
+		return MultipartUpload.create(bucket, db.getMultipartKeyU(mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	@Override
@@ -334,14 +336,14 @@ public class JortageBlobStore extends ForwardingBlobStore {
 					try {
 						delegate().setBlobAccess(bucket, path, BlobAccess.PUBLIC_READ);
 					} catch (UnsupportedOperationException ignore) {}
-					Queries.putPendingBackup(dataSource, hash);
+					db.putPendingU(hash);
 				} else {
 					Thread.sleep(100);
 					etag = targetMeta.getETag();
 				}
-				Queries.putMap(dataSource, identity, Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")), hash);
-				Queries.putFilesize(dataSource, hash, counter.getCount());
-				Queries.removeMultipart(dataSource, mpu.blobName());
+				db.putMappingU(identity, Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")), hash);
+				db.putMetadataU(hash, counter.getCount());
+				db.delMultipartU(mpu.blobName());
 				Thread.sleep(100);
 				delegate().removeBlob(mpu.containerName(), mpu.blobName());
 			} catch (IOException e) {
@@ -401,14 +403,14 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			dumpsStore.removeBlob(container, name);
 			return;
 		}
-		HashCode hc = Queries.getMap(dataSource, identity, name);
-		if (Queries.removeMap(dataSource, identity, name)) {
-			int rc = Queries.getMapCount(dataSource, hc);
-			if (rc == 0) {
+		HashCode hc = db.getMappingHashU(identity, name);
+		if( db.delMappingU(identity, name) ){
+			long rc = db.countMappingsU(hc);
+			if (rc == 0L) {
 				String path = Poolmgr.hashToPath(hc);
 				delegate().removeBlob(bucket, path);
-				Queries.removeFilesize(dataSource, hc);
-				Queries.removePendingBackup(dataSource, hc);
+				db.delMetadataU(hc);
+				db.delPendingU(hc);
 			}
 		}
 	}

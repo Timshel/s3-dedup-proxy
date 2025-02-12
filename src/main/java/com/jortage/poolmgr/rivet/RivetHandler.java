@@ -37,7 +37,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.jortage.poolmgr.FileReprocessor;
 import com.jortage.poolmgr.Poolmgr;
-import com.jortage.poolmgr.Queries;
 import com.jortage.poolmgr.util.ByteSinkSource;
 import com.jortage.poolmgr.util.FileByteSinkSource;
 import com.jortage.poolmgr.util.MemoryByteSinkSource;
@@ -64,6 +63,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.brotli.BrotliInterceptor;
+
+import timshel.s3dedupproxy.Database;
 
 public final class RivetHandler extends AbstractHandler {
 	private static final Splitter RIVET_AUTH_SPLITTER = Splitter.on(':').limit(3);
@@ -99,6 +100,7 @@ public final class RivetHandler extends AbstractHandler {
 	
 	private String bucket;
 	private String publicHost;
+	private Database db;
 
 	private final Gson gson;
 	// synchronize on a mutex when loading URLs to avoid download races that would waste bandwidth
@@ -150,7 +152,7 @@ public final class RivetHandler extends AbstractHandler {
 									hos.close();
 									HashCode hash = hos.hash();
 									String path = Poolmgr.hashToPath(hash);
-									if (Queries.isMapped(Poolmgr.dataSource, hash)) {
+									if (db.isMapped(hash)) {
 										results.put(url, new Pair<>(RivetResult.PRESENT, Temperature.COLD));
 									} else {
 										Blob blob = Poolmgr.backingBlobStore.blobBuilder(path)
@@ -161,8 +163,8 @@ public final class RivetHandler extends AbstractHandler {
 										long size = bss.getSource().size();
 										Poolmgr.backingBlobStore.putBlob(bucket, blob,
 												new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 8192));
-										Queries.putPendingBackup(Poolmgr.dataSource, hash);
-										Queries.putFilesize(Poolmgr.dataSource, hash, size);
+										db.putPendingU(hash);
+										db.putMetadataU(hash, size);
 										results.put(url, new Pair<>(RivetResult.ADDED, Temperature.FREEZING));
 									}
 									return hash;
@@ -190,7 +192,7 @@ public final class RivetHandler extends AbstractHandler {
 							String hashStr = segments.get(3);
 							if (hashStr.startsWith(prelude) && HEX_MATCHER.matchesAllOf(hashStr)) {
 								HashCode hash = HashCode.fromString(hashStr);
-								if (Queries.isMapped(Poolmgr.dataSource, hash)) {
+								if (db.isMapped(hash)) {
 									results.put(originalUrl, new Pair<>(RivetResult.FOUND, temp));
 									return hash;
 								}
@@ -203,9 +205,10 @@ public final class RivetHandler extends AbstractHandler {
 	
 	private OkHttpClient client;
 	
-	public RivetHandler(String bucket, String publicHost) {
+	public RivetHandler(String bucket, String publicHost, Database db) {
 		this.bucket = bucket;
 		this.publicHost = publicHost.replaceFirst("^https?://", "");
+		this.db = db;
 
 		this.gson = new Gson();
 		Interceptor urlChecker = (chain) -> {
@@ -317,7 +320,7 @@ public final class RivetHandler extends AbstractHandler {
 				}
 			}
 			try {
-				Queries.putMap(Poolmgr.dataSource, rreq.identity, destinationPath, hash);
+				db.putMappingU(rreq.identity, destinationPath, hash);
 				res.setStatus(200);
 				JsonObject obj = new JsonObject();
 				JsonObject result = new JsonObject();
@@ -351,7 +354,7 @@ public final class RivetHandler extends AbstractHandler {
 				HashCode hash = HashCode.fromString(hashStr);
 				RivetResult rres;
 				Temperature temp;
-				if (Queries.isMapped(Poolmgr.dataSource, hash)) {
+				if (db.isMapped(hash)) {
 					rres = RivetResult.FOUND;
 					temp = Temperature.HOT;
 				} else {
@@ -383,15 +386,15 @@ public final class RivetHandler extends AbstractHandler {
 						long size = bss.getSource().size();
 						Poolmgr.backingBlobStore.putBlob(this.bucket, blob,
 								new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 8192));
-						Queries.putPendingBackup(Poolmgr.dataSource, hash);
-						Queries.putFilesize(Poolmgr.dataSource, hash, size);
+						db.putPending(hash);
+						db.putMetadataU(hash, size);
 						rres = RivetResult.ADDED;
 						temp = Temperature.FREEZING;
 					} finally {
 						if (bss != null) bss.close();
 					}
 				}
-				Queries.putMap(Poolmgr.dataSource, rreq.identity, path, hash);
+				db.putMappingU(rreq.identity, path, hash);
 				res.setStatus(200);
 				JsonObject obj = new JsonObject();
 				JsonObject result = new JsonObject();

@@ -21,7 +21,7 @@ case class Application(
   def start(): IO[ExitCode] = {
     migrate().map { mr =>
       if (mr.success) {
-        com.jortage.poolmgr.Poolmgr.start(config);
+        com.jortage.poolmgr.Poolmgr.start(config, database);
         ExitCode.Success
       } else ExitCode(2)
     }

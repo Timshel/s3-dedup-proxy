@@ -30,8 +30,8 @@ case class Database(
         ps.option(user_name, file_key)
       }
 
-  def getMappingHashU(user_name: String, file_key: String): Option[HashCode] =
-    getMappingHash(user_name, file_key).unsafeRunSync()
+  def getMappingHashU(user_name: String, file_key: String): HashCode =
+    getMappingHash(user_name, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
 
   val putMappingC: Command[(String, String, HashCode, HashCode)] =
     sql"""
@@ -55,16 +55,19 @@ case class Database(
       DELETE FROM file_mappings WHERE user_name = $text AND file_key = $text
     """.command
 
-  def delMapping(user_name: String, file_key: String): IO[Completion] = {
+  def delMapping(user_name: String, file_key: String): IO[Int] = {
     session
       .prepare(delMappingC)
       .flatMap { pc =>
         pc.execute(user_name, file_key)
+      }.map {
+        case Completion.Delete(count) => count
+        case _ => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
-  def delMappingU(user_name: String, file_key: String): Completion =
-    delMapping(user_name, file_key).unsafeRunSync()
+  def delMappingU(user_name: String, file_key: String): Boolean =
+    delMapping(user_name, file_key).unsafeRunSync() > 0
 
   val countMappingQ: Query[HashCode, Long] =
     sql"""
@@ -105,15 +108,18 @@ case class Database(
       DELETE FROM file_metadata WHERE hash = $hashE
     """.command
 
-  def delMetadata(hash: HashCode): IO[Completion] = {
+  def delMetadata(hash: HashCode): IO[Int] = {
     session
       .prepare(delMetadataC)
       .flatMap { pc =>
         pc.execute(hash)
+      }.map {
+        case Completion.Delete(count) => count
+        case _ => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
-  def delMetadataU(hash: HashCode): Completion =
+  def delMetadataU(hash: HashCode): Int =
     delMetadata(hash).unsafeRunSync()
 
   val putPendingC: Command[HashCode] =
@@ -137,15 +143,18 @@ case class Database(
       DELETE FROM pending_backup WHERE hash = $hashE
     """.command
 
-  def delPending(hash: HashCode): IO[Completion] = {
+  def delPending(hash: HashCode): IO[Int] = {
     session
       .prepare(delPendingC)
       .flatMap { pc =>
         pc.execute(hash)
+      }.map {
+        case Completion.Delete(count) => count
+        case _ => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
-  def delPendingU(hash: HashCode): Completion =
+  def delPendingU(hash: HashCode): Int =
     delPending(hash).unsafeRunSync()
 
   val putMultipartC: Command[(String, String, String, String)] =
@@ -179,8 +188,8 @@ case class Database(
         ps.option(user_name, file_key)
       }
 
-  def getMultipartFileU(user_name: String, file_key: String): Option[String] =
-    getMultipartFile(user_name, file_key).unsafeRunSync()
+  def getMultipartFileU(user_name: String, file_key: String): String =
+    getMultipartFile(user_name, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
 
   val multipartKeyQ: Query[String, String] =
     sql"""
@@ -194,23 +203,26 @@ case class Database(
         ps.option(tempfile)
       }
 
-  def getMultipartKeyU(tempfile: String): Option[String] =
-    getMultipartKey(tempfile).unsafeRunSync()
+  def getMultipartKeyU(tempfile: String): String =
+    getMultipartKey(tempfile).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
 
   val delMultipartC: Command[String] =
     sql"""
       DELETE FROM multipart_uploads WHERE tempfile = $text
     """.command
 
-  def delMultipart(tempfile: String): IO[Completion] = {
+  def delMultipart(tempfile: String): IO[Int] = {
     session
       .prepare(delMultipartC)
       .flatMap { pc =>
         pc.execute(tempfile)
+      }.map {
+        case Completion.Delete(count) => count
+        case _ => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
-  def delMultipartU(tempfile: String): Completion =
+  def delMultipartU(tempfile: String): Int =
     delMultipart(tempfile).unsafeRunSync()
 
 }
