@@ -1,12 +1,17 @@
 package timshel.s3dedupproxy
 
-import cats.effect._
+import cats.effect.{Resource, IO}
+import cats.implicits._
 import com.jortage.poolmgr.Poolmgr
-import org.flywaydb.core.Flyway;
+import org.flywaydb.core.Flyway
 import skunk._
 import skunk.implicits._
 import skunk.codec.all._
 import natchez.Trace.Implicits.noop
+import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
+import doobie.hikari.HikariTransactor
+import doobie.util.ExecutionContexts
+
 
 case class Application(
     config: GlobalConfig,
@@ -48,26 +53,24 @@ object Application extends IOApp {
   }
 
   def using(config: GlobalConfig): Resource[IO, Application] = {
-    val ds = org.postgresql.ds.PGSimpleDataSource()
-    ds.setServerNames(Array(config.db.host))
-    ds.setPortNumbers(Array(config.db.port))
-    ds.setUser(config.db.user)
-    ds.setPassword(config.db.pass)
-    ds.setDatabaseName(config.db.database)
+    val hikariConfig = new HikariConfig()
+    hikariConfig.setJdbcUrl(s"jdbc:postgresql://${config.db.host}:${config.db.port}/${config.db.database}")
+    hikariConfig.setUsername(config.db.user)
+    hikariConfig.setPassword(config.db.pass)
+    hikariConfig.setMaximumPoolSize(config.db.maxPoolSize) // Make max pool size configurable
+    hikariConfig.setDriverClassName("org.postgresql.Driver")
 
-    val dbSession = Session.single[IO](
-      host = config.db.host,
-      port = config.db.port,
-      user = config.db.user,
-      database = config.db.database,
-      password = Some(config.db.pass)
-    )
-
-    dbSession.map { session =>
-      val database = Database(session)(runtime)
-      val flyway   = Flyway.configure().dataSource(ds).load()
-      Application(config, database, flyway)
+    val transactor = (for {
+      ce <- ExecutionContexts.fixedThreadPool[IO](config.db.maxPoolSize) // Connection pool for DB interactions
+      xa <- HikariTransactor.fromHikariConfig[IO](hikariConfig, ce)
+    } yield xa).handleErrorWith { e =>
+      Resource.liftK(IO.raiseError(new RuntimeException("Failed to initialize database transactor", e)))
     }
-  }
+
+    transactor.evalMap { xa =>
+    val database = Database(sessionPool)(runtime)
+    val flyway   = Flyway.configure().dataSource(ds).load()
+    Application(config, database, flyway)
+    }
 
 }
