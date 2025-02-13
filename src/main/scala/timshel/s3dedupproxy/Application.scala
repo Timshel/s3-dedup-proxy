@@ -56,13 +56,14 @@ object Application extends IOApp {
     ds.setPassword(config.db.pass)
     ds.setDatabaseName(config.db.database)
 
-    val dbSession = Session.single[IO](
+    val dbSession = Session.pooled[IO](
       host = config.db.host,
       port = config.db.port,
       user = config.db.user,
       database = config.db.database,
-      password = Some(config.db.pass)
-    )
+      password = Some(config.db.pass),
+      max = 10,
+    ).flatMap(s => s)
 
     dbSession.map { session =>
       val database = Database(session)(runtime)
