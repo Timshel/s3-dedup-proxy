@@ -8,7 +8,8 @@ case class DBConfig(
     port: Int,
     user: String,
     pass: String,
-    database: String
+    database: String,
+    maxPoolSize: Int
 ) derives ConfigReader
 
 case class BackendConfig(
