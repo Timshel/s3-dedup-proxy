@@ -32,6 +32,4 @@ COPY --from=build /s3-dedup-proxy/target/universal/stage /s3-dedup-proxy
 
 WORKDIR /s3-dedup-proxy
 
-COPY compose/s3.service /etc/nginx/sites-enabled/
-
 ENTRYPOINT ["/s3-dedup-proxy/bin/s3-dedup-proxy"]

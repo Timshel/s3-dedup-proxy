@@ -242,7 +242,11 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				return etag;
 			}
 		} catch (IOException e) {
+			e.printStackTrace();
 			throw new UncheckedIOException(e);
+		} catch (Exception e) {
+			e.printStackTrace();
+			throw e;
 		} finally {
 			if (tempFile != null) tempFile.delete();
 			synchronized (Poolmgr.provisionalMaps) {
