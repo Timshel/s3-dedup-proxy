@@ -11,20 +11,21 @@ import natchez.Trace.Implicits.noop
 case class Application(
     config: GlobalConfig,
     database: Database,
-    flyway: Flyway
+    flyway: Flyway,
 ) {
 
-  def migrate() = IO {
-    this.flyway.migrate()
+  def migrate(): IO[org.flywaydb.core.api.output.MigrateResult] = IO {
+    val mr = this.flyway.migrate();
+    if ( !mr.success ) throw new RuntimeException("Migration failure")
+    mr
   }
 
   def start(): IO[ExitCode] = {
-    migrate().map { mr =>
-      if (mr.success) {
-        com.jortage.poolmgr.Poolmgr.start(config, database);
-        ExitCode.Success
-      } else ExitCode(2)
-    }
+    for {
+      _ <- migrate()
+      _ = com.jortage.poolmgr.Poolmgr.start(config, database)
+      _ <- IO.never
+    } yield ExitCode.Success
   }
 }
 
@@ -38,14 +39,12 @@ object Application extends IOApp {
   }
 
   def default(): Resource[IO, Application] = {
-    Resource
-      .make(IO {
-        pureconfig.ConfigSource.default.load[GlobalConfig] match {
-          case Left(e)       => throw new RuntimeException(e.prettyPrint());
-          case Right(config) => config
-        }
-      })(cs => IO {})
-      .flatMap(cs => using(cs))
+    IO {
+      pureconfig.ConfigSource.default.load[GlobalConfig] match {
+        case Left(e)       => throw new RuntimeException(e.prettyPrint());
+        case Right(config) => config
+      }
+    }.toResource.flatMap(cs => using(cs))
   }
 
   def using(config: GlobalConfig): Resource[IO, Application] = {
@@ -68,6 +67,7 @@ object Application extends IOApp {
     dbSession.map { session =>
       val database = Database(session)(runtime)
       val flyway   = Flyway.configure().dataSource(ds).load()
+
       Application(config, database, flyway)
     }
   }
