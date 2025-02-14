@@ -9,7 +9,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.domain.Blob;
 
 import com.jortage.poolmgr.Poolmgr;
@@ -28,12 +27,10 @@ public final class RedirHandler extends AbstractHandler {
 	private static final Pattern VALID_EXTENSION = Pattern.compile("^(\\.[a-zA-Z0-9.]{2,8})?$");
 
 	private String publicHost;
-	private final BlobStore dumpsStore;
 	private Database db;
 
-	public RedirHandler(String publicHost, BlobStore dumpsStore, Database db) {
+	public RedirHandler(String publicHost, Database db) {
 		this.publicHost = publicHost;
-		this.dumpsStore = dumpsStore;
 		this.db = db;
 	}
 
@@ -42,33 +39,19 @@ public final class RedirHandler extends AbstractHandler {
 	public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
 		baseRequest.setHandled(true);
 		List<String> split = REDIR_SPLITTER.splitToList(target);
-		if (split.size() != 2) {
+		if (split.size() != 3) {
 			response.sendError(400);
 			return;
 		} else {
 			String identity = split.get(0);
-			String name = split.get(1);
-			if (name.startsWith("backups/dumps") || name.startsWith("/backups/dumps")) {
-				Blob b = dumpsStore.getBlob(identity, name);
-				if (b != null) {
-					response.setHeader("Cache-Control", "private, no-cache");
-					response.setHeader("Content-Type", b.getMetadata().getContentMetadata().getContentType());
-					if (b.getMetadata().getContentMetadata().getContentLength() != null) {
-						response.setHeader("Content-Length", b.getMetadata().getContentMetadata().getContentLength().toString());
-					}
-					response.setStatus(200);
-					ByteStreams.copy(b.getPayload().openStream(), response.getOutputStream());
-				} else {
-					response.sendError(404);
-				}
-				return;
-			}
+			String bucket = split.get(0);
+			String key = split.get(1);
 			try {
 				boolean waited = false;
 				while (true) {
 					Object mutex = null;
 					synchronized (Poolmgr.provisionalMaps) {
-						mutex = Poolmgr.provisionalMaps.get(identity, name);
+						mutex = Poolmgr.provisionalMaps.get(identity, bucket + "/" + key);
 					}
 					if (mutex == null) break;
 					waited = true;
@@ -81,13 +64,16 @@ public final class RedirHandler extends AbstractHandler {
 				if (waited) {
 					response.setHeader("Jortage-Waited", "true");
 				}
-				HashCode hash = db.getMappingHashU(identity, name);
+				HashCode hash = db.getMappingHashU(identity, bucket, key);
+				if( hash == null ) {
+					throw new IllegalArgumentException("Not found");
+				}
 				response.setHeader("Cache-Control", "public");
 				if (Poolmgr.useNewUrls) {
-					int dotIdx = name.indexOf('.', name.lastIndexOf('/')+1);
+					int dotIdx = key.indexOf('.', key.lastIndexOf('/')+1);
 					String ext = "";
 					if (dotIdx != -1) {
-						ext = name.substring(dotIdx);
+						ext = key.substring(dotIdx);
 					}
 					while (!ext.isEmpty() && !VALID_EXTENSION.matcher(ext).matches()) {
 						int ind = ext.indexOf('.', 1);

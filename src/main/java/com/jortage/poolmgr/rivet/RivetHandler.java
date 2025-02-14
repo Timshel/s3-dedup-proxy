@@ -270,6 +270,10 @@ public final class RivetHandler extends AbstractHandler {
 				jsonError(res, 400, "Must specify sourceUrl");
 				return;
 			}
+			if (!rreq.json.has("bucket")) {
+				jsonError(res, 400, "Must specify bucket");
+				return;
+			}
 			if (!rreq.json.has("destinationPath")) {
 				jsonError(res, 400, "Must specify destinationPath");
 				return;
@@ -279,6 +283,7 @@ public final class RivetHandler extends AbstractHandler {
 				jsonError(res, 400, "sourceUrl must be http or https");
 				return;
 			}
+			String bucket = rreq.json.get("bucket").getAsString();
 			String destinationPath = rreq.json.get("destinationPath").getAsString();
 			RivetResult retRes = null;
 			Temperature temp = null;
@@ -320,7 +325,7 @@ public final class RivetHandler extends AbstractHandler {
 				}
 			}
 			try {
-				db.putMappingU(rreq.identity, destinationPath, hash);
+				db.putMappingU(rreq.identity, bucket, destinationPath, hash);
 				res.setStatus(200);
 				JsonObject obj = new JsonObject();
 				JsonObject result = new JsonObject();
@@ -394,7 +399,7 @@ public final class RivetHandler extends AbstractHandler {
 						if (bss != null) bss.close();
 					}
 				}
-				db.putMappingU(rreq.identity, path, hash);
+				db.putMappingU(rreq.identity, bucket, path, hash);
 				res.setStatus(200);
 				JsonObject obj = new JsonObject();
 				JsonObject result = new JsonObject();

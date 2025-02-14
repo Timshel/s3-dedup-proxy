@@ -50,7 +50,7 @@ import timshel.s3dedupproxy.GlobalConfig;
 
 public class Poolmgr {
 
-	public static BlobStore backingBlobStore, backingBackupBlobStore, dumpsStore;
+	public static BlobStore backingBlobStore, backingBackupBlobStore;
 	public static DataSource dataSource;
 	public static Map<String, String> users;
 	public static volatile boolean readOnly = false;
@@ -61,13 +61,6 @@ public class Poolmgr {
 
 	public static void start(GlobalConfig config, Database db) throws Exception {
 		try {
-			Properties dumpsProps = new Properties();
-			dumpsProps.setProperty(FilesystemConstants.PROPERTY_BASEDIR, "dumps");
-			dumpsStore = ContextBuilder.newBuilder("filesystem")
-					.overrides(dumpsProps)
-					.build(BlobStoreContext.class)
-					.getBlobStore();
-					
 			Stopwatch initSw = Stopwatch.createStarted();
 			loadConfig(config);
 	
@@ -96,7 +89,7 @@ public class Poolmgr {
 				String secret = users.get(identity);
 				if (secret != null) {
 					return Maps.immutableEntry(secret,
-							new JortageBlobStore(backingBlobStore, dumpsStore, config.backend().bucket(), identity, db));
+							new JortageBlobStore(backingBlobStore, config.backend().bucket(), identity, db));
 				} else {
 					throw new SecurityException("Access denied");
 				}
@@ -112,7 +105,7 @@ public class Poolmgr {
 			redirConn.setHost("localhost");
 			redirConn.setPort(23279);
 			redir.addConnector(redirConn);
-			redir.setHandler(new OuterHandler(new RedirHandler(config.backend().publicHost(), dumpsStore, db)));
+			redir.setHandler(new OuterHandler(new RedirHandler(config.backend().publicHost(), db)));
 			redir.start();
 			System.err.println("ready on http://localhost:23279");
 			
@@ -214,9 +207,6 @@ public class Poolmgr {
 			}
 
 			users = scala.collection.JavaConverters.mapAsJavaMapConverter(config.users()).asJava();
-			for (Map.Entry<String, String> en : users.entrySet()) {
-				dumpsStore.createContainerInLocation(null, en.getKey());
-			}
 			backingBlobStore = backingBlobStoreTmp;
 			backingBackupBlobStore = backingBackupBlobStoreTmp;
 			readOnly = config.readOnly();

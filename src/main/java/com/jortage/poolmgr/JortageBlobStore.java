@@ -51,32 +51,19 @@ import com.google.common.io.CountingOutputStream;
 import timshel.s3dedupproxy.Database;
 
 public class JortageBlobStore extends ForwardingBlobStore {
-	private final BlobStore dumpsStore;
 	private final String identity;
 	private final String bucket;
 	private final Database db;
 
-	public JortageBlobStore(BlobStore blobStore, BlobStore dumpsStore, String bucket, String identity, Database db) {
+	public JortageBlobStore(BlobStore blobStore, String bucket, String identity, Database db) {
 		super(blobStore);
-		this.dumpsStore = dumpsStore;
 		this.bucket = bucket;
 		this.identity = identity;
 		this.db = db;
 	}
 
-	private void checkContainer(String container) {
-		if (!Objects.equal(container, identity)) {
-			throw new IllegalArgumentException("Bucket name must match your access ID");
-		}
-	}
-
 	private String getMapPath(String container, String name) {
-		checkContainer(container);
-		return Poolmgr.hashToPath(db.getMappingHashU(container, name));
-	}
-
-	private boolean isDump(String name) {
-		return name.startsWith("backups/dumps") || name.startsWith("/backups/dumps");
+		return Poolmgr.hashToPath(db.getMappingHashU(identity, container, name));
 	}
 
 	@Override
@@ -86,93 +73,56 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public BlobBuilder blobBuilder(String name) {
-		if (isDump(name)) return dumpsStore.blobBuilder(name);
 		return delegate().blobBuilder(name);
 	}
 
 	@Override
 	public Blob getBlob(String container, String name) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.getBlob(container, name);
-		}
 		return delegate().getBlob(bucket, getMapPath(container, name));
 	}
 
 	@Override
 	public Blob getBlob(String container, String name, GetOptions getOptions) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.getBlob(container, name, getOptions);
-		}
 		return delegate().getBlob(bucket, getMapPath(container, name), getOptions);
 	}
 
 	@Override
 	public void downloadBlob(String container, String name, File destination) {
-		if (isDump(name)) {
-			checkContainer(container);
-			dumpsStore.downloadBlob(container, name, destination);
-			return;
-		}
 		delegate().downloadBlob(bucket, getMapPath(container, name), destination);
 	}
 
 	@Override
 	public void downloadBlob(String container, String name, File destination, ExecutorService executor) {
-		if (isDump(name)) {
-			checkContainer(container);
-			dumpsStore.downloadBlob(container, name, destination, executor);
-			return;
-		}
 		delegate().downloadBlob(bucket, getMapPath(container, name), destination, executor);
 	}
 
 	@Override
 	public InputStream streamBlob(String container, String name) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.streamBlob(container, name);
-		}
 		return delegate().streamBlob(bucket, getMapPath(container, name));
 	}
 
 	@Override
 	public InputStream streamBlob(String container, String name, ExecutorService executor) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.streamBlob(container, name, executor);
-		}
 		return delegate().streamBlob(bucket, getMapPath(container, name), executor);
 	}
 
 	@Override
 	public BlobAccess getBlobAccess(String container, String name) {
-		checkContainer(container);
 		return BlobAccess.PUBLIC_READ;
 	}
 
 	@Override
 	public ContainerAccess getContainerAccess(String container) {
-		checkContainer(container);
 		return ContainerAccess.PUBLIC_READ;
 	}
 
 	@Override
 	public boolean blobExists(String container, String name) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.blobExists(container, name);
-		}
 		return delegate().blobExists(bucket, getMapPath(container, name));
 	}
 
 	@Override
 	public BlobMetadata blobMetadata(String container, String name) {
-		if (isDump(name)) {
-			checkContainer(container);
-			return dumpsStore.blobMetadata(container, name);
-		}
 		return delegate().blobMetadata(bucket, getMapPath(container, name));
 	}
 
@@ -199,15 +149,13 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	@Override
 	public String putBlob(String container, Blob blob) {
 		Poolmgr.checkReadOnly();
-		checkContainer(container);
+
 		String blobName = blob.getMetadata().getName();
-		if (isDump(blobName)) {
-			return dumpsStore.putBlob(container, blob, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
-		}
 		File tempFile = null;
+
 		Object mutex = new Object();
 		synchronized (Poolmgr.provisionalMaps) {
-			Poolmgr.provisionalMaps.put(identity, blobName, mutex);
+			Poolmgr.provisionalMaps.put(identity, container + "/" + blobName, mutex);
 		}
 		try {
 			File f = File.createTempFile("jortage-proxy-", ".dat");
@@ -228,7 +176,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				BlobMetadata meta = delegate().blobMetadata(bucket, hash_path);
 				if (meta != null) {
 					String etag = meta.getETag();
-					db.putMappingU(identity, blobName, hash);
+					db.putMappingU(identity, container, blobName, hash);
 					return etag;
 				}
 				Blob blob2 = blobBuilder(hash_path)
@@ -237,7 +185,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 						.build();
 				String etag = delegate().putBlob(bucket, blob2, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
 				db.putPendingU(hash);
-				db.putMappingU(identity, blobName, hash);
+				db.putMappingU(identity, container, blobName, hash);
 				db.putMetadataU(hash, f.length());
 				return etag;
 			}
@@ -250,7 +198,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 		} finally {
 			if (tempFile != null) tempFile.delete();
 			synchronized (Poolmgr.provisionalMaps) {
-				Poolmgr.provisionalMaps.remove(identity, blobName);
+				Poolmgr.provisionalMaps.remove(identity, container + "/" + blobName);
 			}
 			synchronized (mutex) {
 				mutex.notifyAll();
@@ -261,52 +209,36 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	@Override
 	public String copyBlob(String fromContainer, String fromName, String toContainer, String toName, CopyOptions options) {
 		Poolmgr.checkReadOnly();
-		checkContainer(fromContainer);
-		checkContainer(toContainer);
-		if (isDump(fromName)) {
-			if (!isDump(toName)) throw new UnsupportedOperationException();
-			return dumpsStore.copyBlob(fromContainer, fromName, toContainer, toName, options);
-		}
 		// javadoc says options are ignored, so we ignore them too
-		HashCode hash = db.getMappingHashU(identity, fromName);
-		db.putMappingU(identity, toName, hash);
+		HashCode hash = db.getMappingHashU(identity, fromContainer, fromName);
+		db.putMappingU(identity, toContainer, toName, hash);
 		return blobMetadata(bucket, Poolmgr.hashToPath(hash)).getETag();
 	}
 
 	@Override
 	public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
 		Poolmgr.checkReadOnly();
-		checkContainer(container);
-		if (isDump(blobMetadata.getName())) {
-			return dumpsStore.initiateMultipartUpload(container, blobMetadata, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
-		}
 		MutableBlobMetadata mbm = new MutableBlobMetadataImpl(blobMetadata);
 		String tempfile = "multitmp/"+identity+"-"+System.currentTimeMillis()+"-"+System.nanoTime();
 		mbm.setName(tempfile);
 		mbm.getUserMetadata().put("jortage-creator", identity);
 		mbm.getUserMetadata().put("jortage-originalname", blobMetadata.getName());
-		db.putMultipartU(identity, blobMetadata.getName(), tempfile);
+		db.putMultipartU(identity, container, blobMetadata.getName(), tempfile);
 		return delegate().initiateMultipartUpload(bucket, mbm, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	private MultipartUpload mask(MultipartUpload mpu) {
-		checkContainer(mpu.containerName());
-		return MultipartUpload.create(bucket, db.getMultipartFileU(identity, mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
+		return MultipartUpload.create(bucket, db.getMultipartFileU(identity, mpu.containerName(), mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	private MultipartUpload revmask(MultipartUpload mpu) {
-		checkContainer(mpu.containerName());
-		return MultipartUpload.create(bucket, db.getMultipartKeyU(mpu.blobName()), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
+		scala.Tuple2<String, String> t = db.getMultipartKeyU(mpu.blobName());
+		return MultipartUpload.create(t._1(), t._2(), mpu.id(), mpu.blobMetadata(), new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
 	}
 
 	@Override
 	public void abortMultipartUpload(MultipartUpload mpu) {
 		Poolmgr.checkReadOnly();
-		if (isDump(mpu.blobName())) {
-			checkContainer(mpu.containerName());
-			dumpsStore.abortMultipartUpload(mpu);
-			return;
-		}
 		delegate().abortMultipartUpload(mask(mpu));
 	}
 
@@ -314,10 +246,6 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
 		try {
 			Poolmgr.checkReadOnly();
-			if (isDump(mpu.blobName())) {
-				checkContainer(mpu.containerName());
-				return dumpsStore.completeMultipartUpload(mpu, parts);
-			}
 			mpu = mask(mpu);
 			// TODO this is a bit of a hack and isn't very efficient
 			String etag = delegate().completeMultipartUpload(mpu, parts);
@@ -345,7 +273,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 					Thread.sleep(100);
 					etag = targetMeta.getETag();
 				}
-				db.putMappingU(identity, Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")), hash);
+				db.putMappingU(identity, mpu.containerName(), Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")), hash);
 				db.putMetadataU(hash, counter.getCount());
 				db.delMultipartU(mpu.blobName());
 				Thread.sleep(100);
@@ -365,32 +293,25 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	@Override
 	public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
 		Poolmgr.checkReadOnly();
-		if (isDump(mpu.blobName())) {
-			checkContainer(mpu.containerName());
-			return dumpsStore.uploadMultipartPart(mpu, partNumber, payload);
-		}
 		return delegate().uploadMultipartPart(mask(mpu), partNumber, payload);
 	}
 
 	@Override
 	public List<MultipartPart> listMultipartUpload(MultipartUpload mpu) {
-		if (isDump(mpu.blobName())) {
-			checkContainer(mpu.containerName());
-			return dumpsStore.listMultipartUpload(mpu);
-		}
 		return delegate().listMultipartUpload(mask(mpu));
 	}
 
 	@Override
 	public List<MultipartUpload> listMultipartUploads(String container) {
-		checkContainer(container);
 		List<MultipartUpload> out = Lists.newArrayList();
 		for (MultipartUpload mpu : delegate().listMultipartUploads(bucket)) {
 			if (Objects.equal(mpu.blobMetadata().getUserMetadata().get("jortage-creator"), identity)) {
-				out.add(revmask(mpu));
+				MultipartUpload revMpu = revmask(mpu);
+				if ( container == revMpu.containerName() ) {
+					out.add(revmask(revMpu));
+				}
 			}
 		}
-		out.addAll(dumpsStore.listMultipartUploads(container));
 		return out;
 	}
 
@@ -402,13 +323,8 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	@Override
 	public void removeBlob(String container, String name) {
 		Poolmgr.checkReadOnly();
-		checkContainer(container);
-		if (isDump(name)) {
-			dumpsStore.removeBlob(container, name);
-			return;
-		}
-		HashCode hc = db.getMappingHashU(identity, name);
-		if( db.delMappingU(identity, name) ){
+		HashCode hc = db.getMappingHashU(identity, container, name);
+		if( db.delMappingU(identity, container, name) ){
 			long rc = db.countMappingsU(hc);
 			if (rc == 0L) {
 				String path = Poolmgr.hashToPath(hc);
@@ -434,7 +350,6 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	@Override
 	public boolean createContainerInLocation(Location location, String container) {
 		Poolmgr.checkReadOnly();
-		checkContainer(container);
 		return true;
 	}
 
@@ -442,7 +357,6 @@ public class JortageBlobStore extends ForwardingBlobStore {
 	public boolean createContainerInLocation(Location location,
 			String container, CreateContainerOptions createContainerOptions) {
 		Poolmgr.checkReadOnly();
-		checkContainer(container);
 		return true;
 	}
 

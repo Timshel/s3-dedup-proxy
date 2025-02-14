@@ -54,18 +54,17 @@ By default the `test` user must write in the `test` bucket, ex:
 
 ```bash
 > mc ls store/blobs/
-> mc cp file1 tenant1/tenant1/
+> mc cp file1 tenant1/bucket1/
 > mc ls -r store/blobs/
 [2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
-> mc cp file1 tenant2/tenant2/
+> mc cp file1 tenant2/bucket1/
 > mc ls -r store/blobs/
 [2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
-> mc cp file2 tenant1/tenant1/
+> mc cp file2 tenant1/bucket2/
 > mc ls -r store/blobs/
 [2025-02-13 22:55:20 CET]  34KiB STANDARD 8/bb7/8bb7bc575a4a5c18fe537e913f9869bcc016925fdf7c6fbedd3602915cb8341bd609c059f0397f6a42c89bc17baa294f432c3d7983d524d84a8749fd40d1d917
 [2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
 ```
-:warning: For now the bucket name must match the tenant `accessKey`, unsure why will try to remove it :warning:
 
 Have fun
 
