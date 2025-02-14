@@ -1,7 +1,7 @@
 package timshel.s3dedupproxy
 
-
 import cats.effect._
+import cats.effect.std.Dispatcher
 import com.google.common.collect.{ImmutableList, Maps};
 import com.jortage.poolmgr.JortageBlobStore
 import com.typesafe.scalalogging.Logger
@@ -83,10 +83,13 @@ object Application extends IOApp {
       )
       .flatMap(s => s)
 
-    dbSession.map { session =>
+    for {
+      session    <- dbSession
+      dispatcher <- Dispatcher.parallel[IO]
+    } yield {
       val database = Database(session)(runtime)
       val flyway   = Flyway.configure().dataSource(ds).load()
-      val proxy    = createProxy(config, database)
+      val proxy    = createProxy(config, database, dispatcher)
 
       Application(config, database, flyway, proxy)
     }
@@ -94,7 +97,7 @@ object Application extends IOApp {
 
   /** S3Proxy will throw if it sees an X-Amz header it doesn't recognize
     */
-  def createProxy(config: GlobalConfig, db: Database): S3Proxy = {
+  def createProxy(config: GlobalConfig, db: Database, dispatcher: Dispatcher[IO]): S3Proxy = {
     val s3Proxy = S3Proxy
       .builder()
       .awsAuthentication(org.gaul.s3proxy.AuthenticationType.AWS_V2_OR_V4, "DUMMY", "DUMMY")
@@ -107,8 +110,9 @@ object Application extends IOApp {
     val blobStore = createBlobStore(config.backend);
 
     s3Proxy.setBlobStoreLocator((identity, container, blob) => {
+      val proxyBlobStore = ProxyBlobStore(blobStore, identity, config.backend.bucket, db, dispatcher)
       config.users.get(identity) match {
-        case Some(secret) => Maps.immutableEntry(secret, new JortageBlobStore(blobStore, config.backend.bucket, identity, db));
+        case Some(secret) => Maps.immutableEntry(secret, proxyBlobStore);
         case None         => throw new SecurityException("Access denied")
       }
     });
