@@ -61,9 +61,10 @@ case class Database(
       .prepare(delMappingC)
       .flatMap { pc =>
         pc.execute(user_name, bucket, file_key)
-      }.map {
+      }
+      .map {
         case Completion.Delete(count) => count
-        case _ => throw new AssertionError("delMapping execution should only return Delete")
+        case _                        => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
@@ -114,9 +115,10 @@ case class Database(
       .prepare(delMetadataC)
       .flatMap { pc =>
         pc.execute(hash)
-      }.map {
+      }
+      .map {
         case Completion.Delete(count) => count
-        case _ => throw new AssertionError("delMapping execution should only return Delete")
+        case _                        => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
@@ -149,9 +151,10 @@ case class Database(
       .prepare(delPendingC)
       .flatMap { pc =>
         pc.execute(hash)
-      }.map {
+      }
+      .map {
         case Completion.Delete(count) => count
-        case _ => throw new AssertionError("delMapping execution should only return Delete")
+        case _                        => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 
@@ -218,9 +221,10 @@ case class Database(
       .prepare(delMultipartC)
       .flatMap { pc =>
         pc.execute(tempfile)
-      }.map {
+      }
+      .map {
         case Completion.Delete(count) => count
-        case _ => throw new AssertionError("delMapping execution should only return Delete")
+        case _                        => throw new AssertionError("delMapping execution should only return Delete")
       }
   }
 

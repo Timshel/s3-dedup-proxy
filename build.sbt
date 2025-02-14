@@ -41,6 +41,7 @@ lazy val root = project
       "org.slf4j"                        % "slf4j-api"                  % "1.7.36",
       "org.slf4j"                        % "slf4j-simple"               % "1.7.36",
       "com.github.pureconfig"           %% "pureconfig-generic-scala3"  % "0.17.8",
+      "com.typesafe.scala-logging"      %% "scala-logging"              % "3.9.5",
       "org.tpolecat"                    %% "skunk-core"                 % "0.6.4",
       "org.typelevel"                   %% "cats-effect"                % "3.5.7",
       "org.scalikejdbc"                 %% "scalikejdbc"                % "4.3.+",

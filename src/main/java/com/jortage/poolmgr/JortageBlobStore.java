@@ -62,8 +62,13 @@ public class JortageBlobStore extends ForwardingBlobStore {
 		this.db = db;
 	}
 
+	public static String hashToPath(HashCode hc) {
+		String hash = hc.toString();
+		return "blobs/"+hash.substring(0, 1)+"/"+hash.substring(1, 4)+"/"+hash;
+	}
+
 	private String getMapPath(String container, String name) {
-		return Poolmgr.hashToPath(db.getMappingHashU(identity, container, name));
+		return hashToPath(db.getMappingHashU(identity, container, name));
 	}
 
 	@Override
@@ -148,15 +153,9 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public String putBlob(String container, Blob blob) {
-		Poolmgr.checkReadOnly();
-
 		String blobName = blob.getMetadata().getName();
 		File tempFile = null;
 
-		Object mutex = new Object();
-		synchronized (Poolmgr.provisionalMaps) {
-			Poolmgr.provisionalMaps.put(identity, container + "/" + blobName, mutex);
-		}
 		try {
 			File f = File.createTempFile("jortage-proxy-", ".dat");
 			tempFile = f;
@@ -170,7 +169,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			}
 
 			try (Payload payload = new FilePayload(f)) {
-				String hash_path = Poolmgr.hashToPath(hash);
+				String hash_path = hashToPath(hash);
 
 				payload.getContentMetadata().setContentType(contentType);
 				BlobMetadata meta = delegate().blobMetadata(bucket, hash_path);
@@ -197,27 +196,19 @@ public class JortageBlobStore extends ForwardingBlobStore {
 			throw e;
 		} finally {
 			if (tempFile != null) tempFile.delete();
-			synchronized (Poolmgr.provisionalMaps) {
-				Poolmgr.provisionalMaps.remove(identity, container + "/" + blobName);
-			}
-			synchronized (mutex) {
-				mutex.notifyAll();
-			}
 		}
 	}
 
 	@Override
 	public String copyBlob(String fromContainer, String fromName, String toContainer, String toName, CopyOptions options) {
-		Poolmgr.checkReadOnly();
 		// javadoc says options are ignored, so we ignore them too
 		HashCode hash = db.getMappingHashU(identity, fromContainer, fromName);
 		db.putMappingU(identity, toContainer, toName, hash);
-		return blobMetadata(bucket, Poolmgr.hashToPath(hash)).getETag();
+		return blobMetadata(bucket, hashToPath(hash)).getETag();
 	}
 
 	@Override
 	public MultipartUpload initiateMultipartUpload(String container, BlobMetadata blobMetadata, PutOptions options) {
-		Poolmgr.checkReadOnly();
 		MutableBlobMetadata mbm = new MutableBlobMetadataImpl(blobMetadata);
 		String tempfile = "multitmp/"+identity+"-"+System.currentTimeMillis()+"-"+System.nanoTime();
 		mbm.setName(tempfile);
@@ -238,14 +229,12 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public void abortMultipartUpload(MultipartUpload mpu) {
-		Poolmgr.checkReadOnly();
 		delegate().abortMultipartUpload(mask(mpu));
 	}
 
 	@Override
 	public String completeMultipartUpload(MultipartUpload mpu, List<MultipartPart> parts) {
 		try {
-			Poolmgr.checkReadOnly();
 			mpu = mask(mpu);
 			// TODO this is a bit of a hack and isn't very efficient
 			String etag = delegate().completeMultipartUpload(mpu, parts);
@@ -254,7 +243,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				HashingOutputStream hos = new HashingOutputStream(Hashing.sha512(), counter);
 				FileReprocessor.reprocess(stream, hos);
 				HashCode hash = hos.hash();
-				String path = Poolmgr.hashToPath(hash);
+				String path = hashToPath(hash);
 				// we're about to do a bunch of stuff at once
 				// sleep so we don't fall afoul of request rate limits
 				// (causes intermittent 429s on at least DigitalOcean)
@@ -292,7 +281,6 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public MultipartPart uploadMultipartPart(MultipartUpload mpu, int partNumber, Payload payload) {
-		Poolmgr.checkReadOnly();
 		return delegate().uploadMultipartPart(mask(mpu), partNumber, payload);
 	}
 
@@ -322,12 +310,11 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public void removeBlob(String container, String name) {
-		Poolmgr.checkReadOnly();
 		HashCode hc = db.getMappingHashU(identity, container, name);
 		if( db.delMappingU(identity, container, name) ){
 			long rc = db.countMappingsU(hc);
 			if (rc == 0L) {
-				String path = Poolmgr.hashToPath(hc);
+				String path = hashToPath(hc);
 				delegate().removeBlob(bucket, path);
 				db.delMetadataU(hc);
 				db.delPendingU(hc);
@@ -349,14 +336,12 @@ public class JortageBlobStore extends ForwardingBlobStore {
 
 	@Override
 	public boolean createContainerInLocation(Location location, String container) {
-		Poolmgr.checkReadOnly();
 		return true;
 	}
 
 	@Override
 	public boolean createContainerInLocation(Location location,
 			String container, CreateContainerOptions createContainerOptions) {
-		Poolmgr.checkReadOnly();
 		return true;
 	}
 
