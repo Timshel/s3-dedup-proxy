@@ -18,7 +18,7 @@ This will run three services:
 You will need to create the `blobs` bucket in the `S3Proxy` store, since it's run without authentication it can be done with `curl`:
 
 ```bash
-curl --request PUT http://127.0.0.1:8080/blobs
+curl --request PUT http://127.0.0.1:8080/mastodon
 ```
 
 You can then interact with the proxy and store using [MinIO client](https://min.io/docs/minio/linux/reference/minio-mc.html).
@@ -53,17 +53,17 @@ You can then interact with the proxy and store using [MinIO client](https://min.
 By default the `test` user must write in the `test` bucket, ex:
 
 ```bash
-> mc ls store/blobs/
+> mc ls store/mastodon/
 > mc cp file1 tenant1/bucket1/
-> mc ls -r store/blobs/
-[2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
+> mc ls -r store/mastodon/
+[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
 > mc cp file1 tenant2/bucket1/
-> mc ls -r store/blobs/
-[2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
+> mc ls -r store/mastodon/
+[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
 > mc cp file2 tenant1/bucket2/
-> mc ls -r store/blobs/
-[2025-02-13 22:55:20 CET]  34KiB STANDARD 8/bb7/8bb7bc575a4a5c18fe537e913f9869bcc016925fdf7c6fbedd3602915cb8341bd609c059f0397f6a42c89bc17baa294f432c3d7983d524d84a8749fd40d1d917
-[2025-02-13 22:53:04 CET]   151B STANDARD a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
+> mc ls -r store/mastodon/
+[2025-02-13 22:55:20 CET]  34KiB STANDARD blobs/8/bb7/8bb7bc575a4a5c18fe537e913f9869bcc016925fdf7c6fbedd3602915cb8341bd609c059f0397f6a42c89bc17baa294f432c3d7983d524d84a8749fd40d1d917
+[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
 ```
 
 Have fun
@@ -73,4 +73,3 @@ Have fun
 On the strange config you might find:
 
 - `s3.lan`: some part of the code require a domain name and not a host.
-- `mastodon.s3.lan`: not sure why but the `bucket` from the config endup as the subdomain of the called url

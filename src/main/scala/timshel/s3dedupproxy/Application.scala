@@ -122,12 +122,15 @@ object Application extends IOApp {
 
   def createBlobStore(conf: BackendConfig): BlobStore = {
     val protocol = if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol;
+    val overrides = new java.util.Properties();
+    overrides.setProperty(org.jclouds.s3.reference.S3Constants.PROPERTY_S3_VIRTUAL_HOST_BUCKETS, conf.virtualHost.toString());
 
     ContextBuilder
       .newBuilder(protocol)
       .credentials(conf.accessKeyId, conf.secretAccessKey)
       .modules(ImmutableList.of(new org.jclouds.logging.slf4j.config.SLF4JLoggingModule()))
       .endpoint(conf.endpoint)
+      .overrides(overrides)
       .build(classOf[org.jclouds.blobstore.BlobStoreContext])
       .getBlobStore();
   }

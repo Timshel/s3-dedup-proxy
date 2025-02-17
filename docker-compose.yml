@@ -8,7 +8,6 @@ services:
       dockerfile: Dockerfile
     extra_hosts:
       - "s3.lan:127.0.0.1"
-      - "mastodon.s3.lan:127.0.0.1"
     depends_on:
       - Postgres
       - S3Proxy

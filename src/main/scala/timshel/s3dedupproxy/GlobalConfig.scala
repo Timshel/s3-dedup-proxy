@@ -14,6 +14,7 @@ case class DBConfig(
 case class BackendConfig(
     protocol: String,
     endpoint: String,
+    virtualHost: Boolean,
     accessKeyId: String,
     secretAccessKey: String,
     bucket: String,
