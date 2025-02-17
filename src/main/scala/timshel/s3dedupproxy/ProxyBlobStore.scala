@@ -69,6 +69,7 @@ class ProxyBlobStore(
     db: Database,
     dispatcher: Dispatcher[IO],
 ) extends ForwardingBlobStore(blobStore) {
+    val log = com.typesafe.scalalogging.Logger(classOf[Application])
 
     def getMapKey(container: String, name: String): IO[Option[String]] = {
         db.getMappingHash(identity, container, name).map { hco =>
@@ -170,6 +171,8 @@ class ProxyBlobStore(
     }
 
     override def putBlob(container: String, blob: Blob): String = {
+        log.debug(s"putBlob($container, $blob)")
+
         val blobName = blob.getMetadata().getName();
         var tempFile: File = null;
 
@@ -226,6 +229,7 @@ class ProxyBlobStore(
     }
 
     override def initiateMultipartUpload(container: String, blobMetadata: BlobMetadata, options: PutOptions): MultipartUpload = {
+        log.debug(s"initiateMultipartUpload($container, $blobMetadata, $options)")
         val mbm = new MutableBlobMetadataImpl(blobMetadata);
         val tempfile = "multitmp/"+identity+"-"+System.currentTimeMillis()+"-"+System.nanoTime();
         mbm.setName(tempfile);
@@ -249,6 +253,7 @@ class ProxyBlobStore(
     }
 
     override def completeMultipartUpload(orgMpu: MultipartUpload, parts: List[MultipartPart]): String = {
+        log.debug(s"completeMultipartUpload($orgMpu, $parts)")
         try {
             val mpu = mask(orgMpu);
             // TODO this is a bit of a hack and isn't very efficient

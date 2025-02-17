@@ -4,7 +4,6 @@ import cats.effect._
 import cats.effect.std.Dispatcher
 import com.google.common.collect.{ImmutableList, Maps};
 import com.jortage.poolmgr.JortageBlobStore
-import com.typesafe.scalalogging.Logger
 import java.net.URI;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.flywaydb.core.Flyway;
@@ -44,7 +43,7 @@ case class Application(
 }
 
 object Application extends IOApp {
-  val log = Logger(classOf[Application])
+  val log = com.typesafe.scalalogging.Logger(classOf[Application])
 
   /** */
   def run(args: List[String]): IO[ExitCode] = {
