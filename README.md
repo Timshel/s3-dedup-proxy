@@ -67,9 +67,3 @@ By default the `test` user must write in the `test` bucket, ex:
 ```
 
 Have fun
-
-## Remarks
-
-On the strange config you might find:
-
-- `s3.lan`: some part of the code require a domain name and not a host.
