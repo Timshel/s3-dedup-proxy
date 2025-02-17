@@ -40,12 +40,3 @@ CREATE TABLE file_metadata(
 
         PRIMARY KEY (hash)
 );
-
-CREATE TABLE pending_backup(
-        hash bytea      NOT NULL,
-
-        created         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
-
-        PRIMARY KEY (hash)
-);
-

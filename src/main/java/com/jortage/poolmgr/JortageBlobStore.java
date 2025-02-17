@@ -183,7 +183,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 						.userMetadata(blob.getMetadata().getUserMetadata())
 						.build();
 				String etag = delegate().putBlob(bucket, blob2, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
-				db.putPendingU(hash);
+				// db.putPendingU(hash);
 				db.putMappingU(identity, container, blobName, hash);
 				db.putMetadataU(hash, f.length());
 				return etag;
@@ -257,7 +257,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 					try {
 						delegate().setBlobAccess(bucket, path, BlobAccess.PUBLIC_READ);
 					} catch (UnsupportedOperationException ignore) {}
-					db.putPendingU(hash);
+					// db.putPendingU(hash);
 				} else {
 					Thread.sleep(100);
 					etag = targetMeta.getETag();
@@ -317,7 +317,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				String path = hashToPath(hc);
 				delegate().removeBlob(bucket, path);
 				db.delMetadataU(hc);
-				db.delPendingU(hc);
+				// db.delPendingU(hc);
 			}
 		}
 	}

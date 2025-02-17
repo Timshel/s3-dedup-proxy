@@ -46,17 +46,6 @@ class PgIntegrationTests extends CatsEffectSuite {
     }
   }
 
-  test("Query pending_backup run against db") {
-    use { a =>
-      val hashCode = HashCode.fromInt(12);
-
-      for {
-        _ <- a.database.putPending(hashCode)
-        _ <- assertIO(a.database.delPending(hashCode), 1)
-      } yield ()
-    }
-  }
-
   test("Query multipart_uploads run against db") {
     use { a =>
       val hashCode = HashCode.fromInt(12);

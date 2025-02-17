@@ -125,42 +125,6 @@ case class Database(
   def delMetadataU(hash: HashCode): Int =
     delMetadata(hash).unsafeRunSync()
 
-  val putPendingC: Command[HashCode] =
-    sql"""
-      INSERT INTO pending_backup (hash) VALUES ($hashE)
-    """.command
-
-  def putPending(hash: HashCode): IO[Completion] = {
-    session
-      .prepare(putPendingC)
-      .flatMap { pc =>
-        pc.execute(hash)
-      }
-  }
-
-  def putPendingU(hash: HashCode): Completion =
-    putPending(hash).unsafeRunSync()
-
-  val delPendingC: Command[HashCode] =
-    sql"""
-      DELETE FROM pending_backup WHERE hash = $hashE
-    """.command
-
-  def delPending(hash: HashCode): IO[Int] = {
-    session
-      .prepare(delPendingC)
-      .flatMap { pc =>
-        pc.execute(hash)
-      }
-      .map {
-        case Completion.Delete(count) => count
-        case _                        => throw new AssertionError("delMapping execution should only return Delete")
-      }
-  }
-
-  def delPendingU(hash: HashCode): Int =
-    delPending(hash).unsafeRunSync()
-
   val putMultipartC: Command[(String, String, String, String, String)] =
     sql"""
       INSERT INTO multipart_uploads (user_name, bucket, file_key, tempfile) VALUES ($text, $text, $text, $text)

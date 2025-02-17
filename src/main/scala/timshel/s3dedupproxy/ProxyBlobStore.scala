@@ -199,7 +199,6 @@ class ProxyBlobStore(
                             .userMetadata(blob.getMetadata().getUserMetadata())
                             .build();
 
-                    db.putPendingU(hash);
                     db.putMappingU(identity, container, blobName, hash);
                     db.putMetadataU(hash, tempFile.length());
 
@@ -275,7 +274,6 @@ class ProxyBlobStore(
                     } catch {
                         case _:UnsupportedOperationException => {}
                     }
-                    db.putPendingU(hash);
                 } else {
                     Thread.sleep(100);
                     etag = targetMeta.getETag();
@@ -328,7 +326,6 @@ class ProxyBlobStore(
                 val path = ProxyBlobStore.hashToKey(hc);
                 delegate().removeBlob(bucket, path);
                 db.delMetadataU(hc);
-                db.delPendingU(hc);
             }
         }
     }

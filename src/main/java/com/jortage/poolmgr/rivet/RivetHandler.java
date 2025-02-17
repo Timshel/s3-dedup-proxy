@@ -163,7 +163,7 @@ public final class RivetHandler extends AbstractHandler {
 										long size = bss.getSource().size();
 										Poolmgr.backingBlobStore.putBlob(bucket, blob,
 												new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 8192));
-										db.putPendingU(hash);
+										// db.putPendingU(hash);
 										db.putMetadataU(hash, size);
 										results.put(url, new Pair<>(RivetResult.ADDED, Temperature.FREEZING));
 									}
@@ -391,7 +391,7 @@ public final class RivetHandler extends AbstractHandler {
 						long size = bss.getSource().size();
 						Poolmgr.backingBlobStore.putBlob(this.bucket, blob,
 								new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 8192));
-						db.putPending(hash);
+						// db.putPending(hash);
 						db.putMetadataU(hash, size);
 						rres = RivetResult.ADDED;
 						temp = Temperature.FREEZING;
