@@ -19,7 +19,7 @@ case class Application(
     config: GlobalConfig,
     database: Database,
     flyway: Flyway,
-    proxy: S3Proxy,
+    proxy: S3Proxy
 ) {
 
   def migrate(): IO[org.flywaydb.core.api.output.MigrateResult] = IO {
@@ -120,7 +120,7 @@ object Application extends IOApp {
   }
 
   def createBlobStore(conf: BackendConfig): BlobStore = {
-    val protocol = if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol;
+    val protocol  = if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol;
     val overrides = new java.util.Properties();
     overrides.setProperty(org.jclouds.s3.reference.S3Constants.PROPERTY_S3_VIRTUAL_HOST_BUCKETS, conf.virtualHost.toString());
 

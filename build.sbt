@@ -13,7 +13,7 @@ lazy val root = project
       "-encoding", "UTF-8",
       "-feature",
       "-language:higherKinds",
-      "-explain",
+      // "-explain",
     ),
     javaOptions += "-Duser.timezone=UTC",
     Compile / mainClass := Some("timshel.s3dedupproxy.Application"),

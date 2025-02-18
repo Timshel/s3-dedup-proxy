@@ -34,6 +34,7 @@ CREATE INDEX multipart_uploads_reverse  on multipart_uploads(tempfile);
 CREATE TABLE file_metadata(
         hash bytea      NOT NULL,
         size BIGINT     NOT NULL,
+        etag TEXT       NOT NULL,
 
         created         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
         updated         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),

@@ -1,5 +1,5 @@
 import cats.effect._
-import timshel.s3dedupproxy.Application
+import timshel.s3dedupproxy.{Application, Metadata}
 import munit.CatsEffectSuite
 
 import com.google.common.hash.HashCode;
@@ -39,8 +39,9 @@ class PgIntegrationTests extends CatsEffectSuite {
       val hashCode = HashCode.fromInt(12);
 
       for {
-        _ <- a.database.putMetadata(hashCode, 10L)
-        _ <- a.database.putMetadata(hashCode, 12L)
+        _ <- a.database.putMetadata(hashCode, 10L, "A")
+        _ <- a.database.putMetadata(hashCode, 12L, "B")
+        _ <- assertIO(a.database.getMetadata(hashCode), Some(Metadata(12L, "B")))
         _ <- assertIO(a.database.delMetadata(hashCode), 1)
       } yield ()
     }

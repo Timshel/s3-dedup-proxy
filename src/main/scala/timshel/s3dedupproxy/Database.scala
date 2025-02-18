@@ -9,6 +9,11 @@ import skunk.codec.all._
 
 import com.google.common.hash.HashCode;
 
+case class Metadata(
+    size: Long,
+    eTag: String
+)
+
 case class Database(
     session: Session[IO]
 )(implicit runtime: IORuntime) {
@@ -88,22 +93,34 @@ case class Database(
 
   def isMapped(hash: HashCode): Boolean = countMappingsU(hash) > 0
 
-  val putMetadataC: Command[(HashCode, Long, Long)] =
+  val putMetadataC: Command[(HashCode, Long, String, Long, String)] =
     sql"""
-      INSERT INTO file_metadata (hash, size) VALUES ($hashE, $int8)
-        ON CONFLICT (hash) DO UPDATE SET size = $int8, updated = now();
+      INSERT INTO file_metadata (hash, size, etag) VALUES ($hashE, $int8, $text)
+        ON CONFLICT (hash) DO UPDATE SET size = $int8, etag= $text, updated = now();
     """.command
 
-  def putMetadata(hash: HashCode, size: Long): IO[Completion] = {
+  def putMetadata(hash: HashCode, size: Long, eTag: String): IO[Completion] = {
     session
       .prepare(putMetadataC)
       .flatMap { pc =>
-        pc.execute(hash, size, size)
+        pc.execute(hash, size, eTag, size, eTag)
       }
   }
 
-  def putMetadataU(hash: HashCode, size: Long): Completion =
-    putMetadata(hash, size).unsafeRunSync()
+  def putMetadataU(hash: HashCode, size: Long, eTag: String): Completion =
+    putMetadata(hash, size, eTag).unsafeRunSync()
+
+  val getMetadataQ: Query[HashCode, Metadata] =
+    sql"""
+      SELECT size, etag FROM file_metadata WHERE hash = $hashE
+    """
+      .query(int8 ~ text)
+      .map { case s ~ e => Metadata(s, e) }
+
+  def getMetadata(hashCode: HashCode): IO[Option[Metadata]] =
+    session
+      .prepare(getMetadataQ)
+      .flatMap { ps => ps.option(hashCode) }
 
   val delMetadataC: Command[HashCode] =
     sql"""

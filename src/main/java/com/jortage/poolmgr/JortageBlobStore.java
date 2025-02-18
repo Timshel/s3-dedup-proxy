@@ -185,7 +185,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 				String etag = delegate().putBlob(bucket, blob2, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
 				// db.putPendingU(hash);
 				db.putMappingU(identity, container, blobName, hash);
-				db.putMetadataU(hash, f.length());
+				db.putMetadataU(hash, f.length(), etag);
 				return etag;
 			}
 		} catch (IOException e) {
@@ -263,7 +263,7 @@ public class JortageBlobStore extends ForwardingBlobStore {
 					etag = targetMeta.getETag();
 				}
 				db.putMappingU(identity, mpu.containerName(), Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")), hash);
-				db.putMetadataU(hash, counter.getCount());
+				db.putMetadataU(hash, counter.getCount(), etag);
 				db.delMultipartU(mpu.blobName());
 				Thread.sleep(100);
 				delegate().removeBlob(mpu.containerName(), mpu.blobName());
