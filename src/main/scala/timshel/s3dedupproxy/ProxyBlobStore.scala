@@ -242,7 +242,6 @@ class ProxyBlobStore(
     val tempfile = "multitmp/" + identity + "-" + System.currentTimeMillis() + "-" + System.nanoTime();
     mbm.setName(tempfile);
     mbm.getUserMetadata().put("jortage-creator", identity);
-    mbm.getUserMetadata().put("jortage-originalname", blobMetadata.getName());
     db.putMultipartU(identity, container, blobMetadata.getName(), tempfile);
     return delegate().initiateMultipartUpload(bucket, mbm, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
   }
@@ -311,8 +310,8 @@ class ProxyBlobStore(
         }
         db.putMappingU(
           identity,
-          mpu.containerName(),
-          Preconditions.checkNotNull(meta.getUserMetadata().get("jortage-originalname")),
+          orgMpu.containerName(),
+          orgMpu.blobName(),
           hash
         );
         db.putMetadataU(hash, counter.getCount(), etag);

@@ -15,7 +15,7 @@ case class Metadata(
 )
 
 case class Database(
-    session: Session[IO]
+    pool: Resource[IO, Session[IO]]
 )(implicit runtime: IORuntime) {
 
   val hashD: Decoder[HashCode] = bytea.map(HashCode.fromBytes(_))
@@ -30,11 +30,12 @@ case class Database(
     """.query(hashD)
 
   def getMappingHash(user_name: String, bucket: String, file_key: String): IO[Option[HashCode]] =
-    session
-      .prepare(mappingHashQ)
-      .flatMap { ps =>
-        ps.option(user_name, bucket, file_key)
-      }
+    pool.use {
+      _.prepare(mappingHashQ)
+        .flatMap { ps =>
+          ps.option(user_name, bucket, file_key)
+        }
+    }
 
   def getMappingHashU(user_name: String, bucket: String, file_key: String): HashCode =
     getMappingHash(user_name, bucket, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
@@ -46,11 +47,12 @@ case class Database(
     """.command
 
   def putMapping(user_name: String, bucket: String, file_key: String, hash: HashCode): IO[Completion] = {
-    session
-      .prepare(putMappingC)
-      .flatMap { pc =>
-        pc.execute(user_name, bucket, file_key, hash, hash)
-      }
+    pool.use {
+      _.prepare(putMappingC)
+        .flatMap { pc =>
+          pc.execute(user_name, bucket, file_key, hash, hash)
+        }
+    }
   }
 
   def putMappingU(user_name: String, bucket: String, file_key: String, hash: HashCode): Completion =
@@ -62,15 +64,16 @@ case class Database(
     """.command
 
   def delMapping(user_name: String, bucket: String, file_key: String): IO[Int] = {
-    session
-      .prepare(delMappingC)
-      .flatMap { pc =>
-        pc.execute(user_name, bucket, file_key)
-      }
-      .map {
-        case Completion.Delete(count) => count
-        case _                        => throw new AssertionError("delMapping execution should only return Delete")
-      }
+    pool.use {
+      _.prepare(delMappingC)
+        .flatMap { pc =>
+          pc.execute(user_name, bucket, file_key)
+        }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMapping execution should only return Delete")
+        }
+    }
   }
 
   def delMappingU(user_name: String, bucket: String, file_key: String): Boolean =
@@ -82,11 +85,12 @@ case class Database(
     """.query(int8)
 
   def countMappings(hash: HashCode): IO[Long] =
-    session
-      .prepare(countMappingQ)
-      .flatMap { ps =>
-        ps.unique(hash)
-      }
+    pool.use {
+      _.prepare(countMappingQ)
+        .flatMap { ps =>
+          ps.unique(hash)
+        }
+    }
 
   def countMappingsU(hash: HashCode): Long =
     countMappings(hash).unsafeRunSync()
@@ -100,11 +104,12 @@ case class Database(
     """.command
 
   def putMetadata(hash: HashCode, size: Long, eTag: String): IO[Completion] = {
-    session
-      .prepare(putMetadataC)
-      .flatMap { pc =>
-        pc.execute(hash, size, eTag, size, eTag)
-      }
+    pool.use {
+      _.prepare(putMetadataC)
+        .flatMap { pc =>
+          pc.execute(hash, size, eTag, size, eTag)
+        }
+    }
   }
 
   def putMetadataU(hash: HashCode, size: Long, eTag: String): Completion =
@@ -118,9 +123,10 @@ case class Database(
       .map { case s ~ e => Metadata(s, e) }
 
   def getMetadata(hashCode: HashCode): IO[Option[Metadata]] =
-    session
-      .prepare(getMetadataQ)
-      .flatMap { ps => ps.option(hashCode) }
+    pool.use {
+      _.prepare(getMetadataQ)
+        .flatMap { ps => ps.option(hashCode) }
+    }
 
   val delMetadataC: Command[HashCode] =
     sql"""
@@ -128,15 +134,16 @@ case class Database(
     """.command
 
   def delMetadata(hash: HashCode): IO[Int] = {
-    session
-      .prepare(delMetadataC)
-      .flatMap { pc =>
-        pc.execute(hash)
-      }
-      .map {
-        case Completion.Delete(count) => count
-        case _                        => throw new AssertionError("delMapping execution should only return Delete")
-      }
+    pool.use {
+      _.prepare(delMetadataC)
+        .flatMap { pc =>
+          pc.execute(hash)
+        }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMapping execution should only return Delete")
+        }
+    }
   }
 
   def delMetadataU(hash: HashCode): Int =
@@ -149,11 +156,12 @@ case class Database(
     """.command
 
   def putMultipart(user_name: String, bucket: String, file_key: String, temp_file: String): IO[Completion] = {
-    session
-      .prepare(putMultipartC)
-      .flatMap { pc =>
-        pc.execute(user_name, bucket, file_key, temp_file, temp_file)
-      }
+    pool.use {
+      _.prepare(putMultipartC)
+        .flatMap { pc =>
+          pc.execute(user_name, bucket, file_key, temp_file, temp_file)
+        }
+    }
   }
 
   def putMultipartU(user_name: String, bucket: String, file_key: String, temp_file: String): Completion =
@@ -168,11 +176,12 @@ case class Database(
     """.query(text)
 
   def getMultipartFile(user_name: String, bucket: String, file_key: String): IO[Option[String]] =
-    session
-      .prepare(multipartFileQ)
-      .flatMap { ps =>
-        ps.option(user_name, bucket, file_key)
-      }
+    pool.use {
+      _.prepare(multipartFileQ)
+        .flatMap { ps =>
+          ps.option(user_name, bucket, file_key)
+        }
+    }
 
   def getMultipartFileU(user_name: String, bucket: String, file_key: String): String =
     getMultipartFile(user_name, bucket, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
@@ -183,11 +192,12 @@ case class Database(
     """.query(text ~ text)
 
   def getMultipartKey(tempfile: String): IO[Option[(String, String)]] =
-    session
-      .prepare(multipartKeyQ)
-      .flatMap { ps =>
-        ps.option(tempfile)
-      }
+    pool.use {
+      _.prepare(multipartKeyQ)
+        .flatMap { ps =>
+          ps.option(tempfile)
+        }
+    }
 
   def getMultipartKeyU(tempfile: String): (String, String) =
     getMultipartKey(tempfile).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
@@ -198,15 +208,16 @@ case class Database(
     """.command
 
   def delMultipart(tempfile: String): IO[Int] = {
-    session
-      .prepare(delMultipartC)
-      .flatMap { pc =>
-        pc.execute(tempfile)
-      }
-      .map {
-        case Completion.Delete(count) => count
-        case _                        => throw new AssertionError("delMapping execution should only return Delete")
-      }
+    pool.use {
+      _.prepare(delMultipartC)
+        .flatMap { pc =>
+          pc.execute(tempfile)
+        }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMapping execution should only return Delete")
+        }
+    }
   }
 
   def delMultipartU(tempfile: String): Int =

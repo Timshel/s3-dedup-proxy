@@ -71,8 +71,8 @@ object Application extends IOApp {
     ds.setPassword(config.db.pass)
     ds.setDatabaseName(config.db.database)
 
-    val dbSession = Session
-      .pooled[IO](
+    for {
+      pool <- Session.pooled[IO](
         host = config.db.host,
         port = config.db.port,
         user = config.db.user,
@@ -80,13 +80,9 @@ object Application extends IOApp {
         password = Some(config.db.pass),
         max = 10
       )
-      .flatMap(s => s)
-
-    for {
-      session    <- dbSession
       dispatcher <- Dispatcher.parallel[IO]
     } yield {
-      val database = Database(session)(runtime)
+      val database = Database(pool)(runtime)
       val flyway   = Flyway.configure().dataSource(ds).load()
       val proxy    = createProxy(config, database, dispatcher)
 
