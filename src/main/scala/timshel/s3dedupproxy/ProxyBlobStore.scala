@@ -2,26 +2,16 @@ package timshel.s3dedupproxy
 
 import cats.effect._
 import cats.effect.std.Dispatcher
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
-import com.google.common.hash.HashingOutputStream;
-import com.google.common.io.ByteStreams;
-import com.google.common.io.CountingOutputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.List;
 import java.util.Set;
-import javax.sql.DataSource;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -62,6 +52,7 @@ object ProxyBlobStore {
 }
 
 class ProxyBlobStore(
+    bufferStore: BlobStore,
     blobStore: BlobStore,
     identity: String,
     bucket: String,
@@ -169,57 +160,59 @@ class ProxyBlobStore(
     delegate().getMaximumMultipartPartSize();
   }
 
+  private def ensureContainerExists(container: String): IO[Unit] = IO {
+    if (!bufferStore.containerExists(container)) {
+      bufferStore.createContainerInLocation(null, container)
+    }
+  }
+
   override def putBlob(container: String, blob: Blob): String = {
     log.debug(s"putBlob($container, $blob)")
+    val name = blob.getMetadata().getName()
 
-    val p = Resource
-      .make(IO { File.createTempFile("jortage-proxy-", ".dat") })({ tempFile => IO { tempFile.delete } })
-      .use { tempFile =>
-        (for {
-          is  <- Resource.make(IO { blob.getPayload().openStream() })({ is => IO { is.close() } })
-          fos <- Resource.make(IO { Files.newOutputStream(Paths.get(tempFile.toURI())) })({ os => IO { os.close() } })
-        } yield (is, fos))
-          .use { (is, fos) =>
-            IO {
-              val hos = new HashingOutputStream(Hashing.sha512(), fos)
-              is.transferTo(hos)
-              hos.hash()
-            }
-          }
-          .flatMap { hash =>
-            Resource.make(IO { new FilePayload(tempFile) }) { fp => IO { fp.close() } }.use { payload =>
-              val blobName = blob.getMetadata().getName();
-
-              db.getMetadata(hash).flatMap {
-                case Some(size) => db.putMapping(identity, container, blobName, hash).map { _ => "etag ?" }
-                case None => {
-                  val hash_path   = ProxyBlobStore.hashToKey(hash);
-                  val contentType = blob.getPayload().getContentMetadata().getContentType();
-                  payload.getContentMetadata().setContentType(contentType);
-
-                  val blob2 = blobBuilder(hash_path)
-                    .payload(payload)
-                    .userMetadata(blob.getMetadata().getUserMetadata())
-                    .build();
-
-                  for {
-                    eTag <- IO {
-                      delegate().putBlob(bucket, blob2, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart())
-                    }
-                    _ <- db.putMetadata(hash, tempFile.length(), eTag)
-                    _ <- db.putMapping(identity, container, blobName, hash)
-                  } yield eTag
-                }
-              }
-            }
-          }
+    val p = (for {
+      _ <- ensureContainerExists(container)
+      (size, hash) <- IO {
+        val is      = blob.getPayload().openStream();
+        val counter = new com.google.common.io.CountingInputStream(is);
+        val his     = new com.google.common.hash.HashingInputStream(Hashing.sha512(), counter)
+        blob.setPayload(his)
+        bufferStore.putBlob(container, blob)
+        (counter.getCount(), his.hash())
       }
+      eTag <- processBufferDedup(container, name, hash, size)
+    } yield eTag)
       .onError { e =>
         IO {
           log.error(s"Failed to putBlob($container, $blob): $e")
         }
       }
+
     dispatcher.unsafeRunSync(p)
+  }
+
+  def processBufferDedup(container: String, name: String, hash: HashCode, size: Long): IO[String] = {
+    db.getMetadata(hash)
+      .flatMap {
+        case Some(metadata) => IO.pure(metadata.eTag)
+        case None =>
+          for {
+            eTag <- IO {
+              val blob     = bufferStore.getBlob(container, name)
+              val metadata = blob.getMetadata()
+              metadata.setContainer(bucket)
+              metadata.setName(ProxyBlobStore.hashToKey(hash))
+              delegate().putBlob(bucket, blob, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
+            }
+            _ <- db.putMetadata(hash, size, eTag)
+          } yield eTag
+      }
+      .flatMap { eTag =>
+        for {
+          _ <- db.putMapping(identity, container, name, hash)
+          _ <- IO(bufferStore.removeBlob(container, name))
+        } yield eTag
+      }
   }
 
   /** javadoc says options are ignored, so we ignore them too
@@ -238,117 +231,66 @@ class ProxyBlobStore(
 
   override def initiateMultipartUpload(container: String, blobMetadata: BlobMetadata, options: PutOptions): MultipartUpload = {
     log.debug(s"initiateMultipartUpload($container, $blobMetadata, $options)")
-    val mbm      = new MutableBlobMetadataImpl(blobMetadata);
-    val tempfile = "multitmp/" + identity + "-" + System.currentTimeMillis() + "-" + System.nanoTime();
-    mbm.setName(tempfile);
-    mbm.getUserMetadata().put("jortage-creator", identity);
-    db.putMultipartU(identity, container, blobMetadata.getName(), tempfile);
-    return delegate().initiateMultipartUpload(bucket, mbm, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ));
-  }
 
-  private def mask(mpu: MultipartUpload): MultipartUpload = {
-    MultipartUpload.create(
-      bucket,
-      db.getMultipartFileU(identity, mpu.containerName(), mpu.blobName()),
-      mpu.id(),
-      mpu.blobMetadata(),
-      new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ)
-    );
-  }
+    val p = for {
+      _ <- ensureContainerExists(container)
+      mu <- IO(
+        bufferStore.initiateMultipartUpload(container, blobMetadata, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ))
+      )
+    } yield mu
 
-  private def revmask(mpu: MultipartUpload): MultipartUpload = {
-    val (bucket, key) = db.getMultipartKeyU(mpu.blobName());
-    return MultipartUpload.create(
-      bucket,
-      key,
-      mpu.id(),
-      mpu.blobMetadata(),
-      new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ)
-    );
+    dispatcher.unsafeRunSync(p)
   }
 
   override def abortMultipartUpload(mpu: MultipartUpload): Unit = {
-    delegate().abortMultipartUpload(mask(mpu));
+    log.debug(s"abortMultipartUpload($mpu)")
+    bufferStore.abortMultipartUpload(mpu);
   }
 
-  override def completeMultipartUpload(orgMpu: MultipartUpload, parts: List[MultipartPart]): String = {
-    log.debug(s"completeMultipartUpload($orgMpu, $parts)")
-    try {
-      val mpu = mask(orgMpu);
-      // TODO this is a bit of a hack and isn't very efficient
-      var etag = delegate().completeMultipartUpload(mpu, parts);
-      Using(delegate().getBlob(mpu.containerName(), mpu.blobName()).getPayload().openStream()) { stream =>
-        val counter = new CountingOutputStream(ByteStreams.nullOutputStream());
-        val hos     = new HashingOutputStream(Hashing.sha512(), counter);
-        FileReprocessor.reprocess(stream, hos);
-        val hash = hos.hash();
-        val path = ProxyBlobStore.hashToKey(hash);
-        // we're about to do a bunch of stuff at once
-        // sleep so we don't fall afoul of request rate limits
-        // (causes intermittent 429s on at least DigitalOcean)
-        Thread.sleep(100);
-        val meta       = delegate().blobMetadata(mpu.containerName(), mpu.blobName());
-        val targetMeta = delegate().blobMetadata(bucket, path);
-        if (targetMeta == null) {
-          Thread.sleep(100);
-          etag = delegate().copyBlob(
-            mpu.containerName(),
-            mpu.blobName(),
-            bucket,
-            path,
-            CopyOptions.builder().contentMetadata(meta.getContentMetadata()).build()
-          );
-          Thread.sleep(100);
-          try {
-            delegate().setBlobAccess(bucket, path, BlobAccess.PUBLIC_READ);
-          } catch {
-            case _: UnsupportedOperationException => {}
-          }
-        } else {
-          Thread.sleep(100);
-          etag = targetMeta.getETag();
+  def bufferStoreBlobHash(container: String, name: String): IO[(Long, HashCode)] = IO {
+    Using(bufferStore.getBlob(container, name).getPayload().openStream()) { stream =>
+      val counter = new com.google.common.io.CountingOutputStream(java.io.OutputStream.nullOutputStream());
+      val hos     = new com.google.common.hash.HashingOutputStream(Hashing.sha512(), counter);
+      stream.transferTo(hos)
+      (counter.getCount(), hos.hash())
+    }.get
+  }
+
+  // Not the most efficient since we read the file to compute the size and hash
+  override def completeMultipartUpload(mpu: MultipartUpload, parts: List[MultipartPart]): String = {
+    log.debug(s"completeMultipartUpload($mpu, $parts)")
+
+    val container = mpu.containerName()
+    val name      = mpu.blobName()
+
+    val p = (for {
+      completed <- IO(bufferStore.completeMultipartUpload(mpu, parts))
+      _ = log.debug(s"Completed upload to bufferStore: $completed")
+      (size, hash) <- bufferStoreBlobHash(container, name)
+      eTag <- processBufferDedup(container, name, hash, size)
+    } yield eTag)
+      .onError { e =>
+        IO {
+          log.error(s"Failed to completeMultipartUpload(${mpu.id()}): $e")
         }
-        db.putMappingU(
-          identity,
-          orgMpu.containerName(),
-          orgMpu.blobName(),
-          hash
-        );
-        db.putMetadataU(hash, counter.getCount(), etag);
-        db.delMultipartU(mpu.blobName());
-        Thread.sleep(100);
-        delegate().removeBlob(mpu.containerName(), mpu.blobName());
       }
-      return etag;
-    } catch {
-      case e: IOException          => throw new UncheckedIOException(e);
-      case e: InterruptedException => throw new RuntimeException(e);
-    }
+
+    dispatcher.unsafeRunSync(p)
   }
 
   override def uploadMultipartPart(mpu: MultipartUpload, partNumber: Int, payload: Payload): MultipartPart = {
-    delegate().uploadMultipartPart(mask(mpu), partNumber, payload);
+    log.debug(s"uploadMultipartPart($mpu, $partNumber, $payload)")
+    bufferStore.uploadMultipartPart(mpu, partNumber, payload)
   }
 
   override def listMultipartUpload(mpu: MultipartUpload): List[MultipartPart] = {
-    delegate().listMultipartUpload(mask(mpu));
+    log.debug(s"listMultipartUpload($mpu)")
+    bufferStore.listMultipartUpload(mpu)
   }
 
   override def listMultipartUploads(container: String): List[MultipartUpload] = {
-    val out = Lists.newArrayList[MultipartUpload]();
-
-    delegate()
-      .listMultipartUploads(bucket)
-      .forEach((mpu) => {
-        if (Objects.equal(mpu.blobMetadata().getUserMetadata().get("jortage-creator"), identity)) {
-          val revMpu = revmask(mpu);
-          if (container == revMpu.containerName()) {
-            out.add(revmask(revMpu));
-          }
-        }
-      });
-
-    out;
+    log.debug(s"listMultipartUploads($container)")
+    bufferStore.listMultipartUploads(container)
   }
 
   override def putBlob(container: String, blob: Blob, putOptions: PutOptions): String = {
@@ -398,39 +340,46 @@ class ProxyBlobStore(
   override def setBlobAccess(container: String, name: String, access: BlobAccess): Unit = {}
 
   override def clearContainer(container: String): Unit = {
+    log.debug(s"Uninplemented clearContainer($container)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def clearContainer(container: String, options: ListContainerOptions): Unit = {
+    log.debug(s"Uninplemented clearContainer($container, $options)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def deleteContainer(container: String): Unit = {
+    log.debug(s"Uninplemented deleteContainer($container)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def deleteContainerIfEmpty(container: String): Boolean = {
+    log.debug(s"Uninplemented deleteContainerIfEmpty($container)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def list(): PageSet[StorageMetadata] = {
+    log.debug(s"Uninplemented list()")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def list(container: String): PageSet[StorageMetadata] = {
+    log.debug(s"Uninplemented list($container)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def list(container: String, options: ListContainerOptions): PageSet[StorageMetadata] = {
+    log.debug(s"Uninplemented list($container, $options)")
     throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
   }
 
   override def createDirectory(container: String, directory: String) = {
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_DIR_MSG);
+    log.debug(s"createDirectory($container, $directory)")
   }
 
   override def deleteDirectory(container: String, directory: String) = {
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_DIR_MSG);
+    log.debug(s"deleteDirectory($container, $directory)")
   }
 
 }

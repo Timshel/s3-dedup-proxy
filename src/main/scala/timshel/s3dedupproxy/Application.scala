@@ -4,12 +4,14 @@ import cats.effect._
 import cats.effect.std.Dispatcher
 import com.google.common.collect.{ImmutableList, Maps};
 import com.jortage.poolmgr.JortageBlobStore
+import java.io.File;
 import java.net.URI;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.flywaydb.core.Flyway;
 import org.gaul.s3proxy.S3Proxy;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.ContextBuilder;
+import org.postgresql.ds.PGSimpleDataSource
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
@@ -64,14 +66,7 @@ object Application extends IOApp {
   def using(config: GlobalConfig): Resource[IO, Application] = {
     import natchez.Trace.Implicits.noop
 
-    val ds = org.postgresql.ds.PGSimpleDataSource()
-    ds.setServerNames(Array(config.db.host))
-    ds.setPortNumbers(Array(config.db.port))
-    ds.setUser(config.db.user)
-    ds.setPassword(config.db.pass)
-    ds.setDatabaseName(config.db.database)
-
-    for {
+    (for {
       pool <- Session.pooled[IO](
         host = config.db.host,
         port = config.db.port,
@@ -81,13 +76,31 @@ object Application extends IOApp {
         max = 10
       )
       dispatcher <- Dispatcher.parallel[IO]
-    } yield {
-      val database = Database(pool)(runtime)
-      val flyway   = Flyway.configure().dataSource(ds).load()
-      val proxy    = createProxy(config, database, dispatcher)
+    } yield (pool, dispatcher))
+      .evalMap { case (pool, dispatcher) =>
+        for {
+          ds  <- simpleDataSource(config.db)
+          fly <- IO(Flyway.configure().dataSource(ds).load())
+          database = Database(pool)(runtime)
+          proxy    = createProxy(config, database, dispatcher)
+        } yield Application(config, database, fly, proxy)
+      }
+      .evalTap { _ =>
+        IO {
+          config.users.keys.foreach { identity => bufferStorePath(identity).mkdirs() }
+          log.debug(s"Buffer store path created for users (${config.users.keys})")
+        }
+      }
+  }
 
-      Application(config, database, flyway, proxy)
-    }
+  def simpleDataSource(config: DBConfig): IO[PGSimpleDataSource] = IO {
+    val ds = org.postgresql.ds.PGSimpleDataSource()
+    ds.setServerNames(Array(config.host))
+    ds.setPortNumbers(Array(config.port))
+    ds.setUser(config.user)
+    ds.setPassword(config.pass)
+    ds.setDatabaseName(config.database)
+    ds
   }
 
   /** S3Proxy will throw if it sees an X-Amz header it doesn't recognize
@@ -100,12 +113,14 @@ object Application extends IOApp {
       .jettyMaxThreads(24)
       .v4MaxNonChunkedRequestSize(128L * 1024L * 1024L)
       .ignoreUnknownHeaders(true)
-      .build();
+      .build()
 
-    val blobStore = createBlobStore(config.backend);
+    val blobStore = createBlobStore(config.backend)
 
     s3Proxy.setBlobStoreLocator((identity, container, blob) => {
-      val proxyBlobStore = ProxyBlobStore(blobStore, identity, config.backend.bucket, db, dispatcher)
+      val proxyBlobStore =
+        ProxyBlobStore(createBufferStore(identity), blobStore, identity, config.backend.bucket, db, dispatcher)
+
       config.users.get(identity) match {
         case Some(secret) => Maps.immutableEntry(secret, proxyBlobStore);
         case None         => throw new SecurityException("Access denied")
@@ -115,19 +130,37 @@ object Application extends IOApp {
     s3Proxy
   }
 
+  def bufferStorePath(identity: String): File = {
+    new File(s"/tmp/s3dedupproxy-buffer/$identity/")
+  }
+
+  def createBufferStore(identity: String): BlobStore = {
+    val blobPath = bufferStorePath(identity)
+
+    val overrides = new java.util.Properties()
+    overrides.setProperty(org.jclouds.filesystem.reference.FilesystemConstants.PROPERTY_BASEDIR, blobPath.getPath())
+
+    org.jclouds.ContextBuilder
+      .newBuilder("filesystem-nio2")
+      .credentials("identity", "credential")
+      .modules(ImmutableList.of(new org.jclouds.logging.slf4j.config.SLF4JLoggingModule()))
+      .overrides(overrides)
+      .build(classOf[org.jclouds.blobstore.BlobStoreContext])
+      .getBlobStore()
+  }
+
   def createBlobStore(conf: BackendConfig): BlobStore = {
-    val protocol  = if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol;
-    val overrides = new java.util.Properties();
+    val overrides = new java.util.Properties()
     overrides.setProperty(org.jclouds.s3.reference.S3Constants.PROPERTY_S3_VIRTUAL_HOST_BUCKETS, conf.virtualHost.toString());
 
     ContextBuilder
-      .newBuilder(protocol)
+      .newBuilder(if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol)
       .credentials(conf.accessKeyId, conf.secretAccessKey)
       .modules(ImmutableList.of(new org.jclouds.logging.slf4j.config.SLF4JLoggingModule()))
       .endpoint(conf.endpoint)
       .overrides(overrides)
       .build(classOf[org.jclouds.blobstore.BlobStoreContext])
-      .getBlobStore();
+      .getBlobStore()
   }
 
 }
