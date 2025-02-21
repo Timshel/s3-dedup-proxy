@@ -39,7 +39,6 @@ import scala.util.Using
 import timshel.s3dedupproxy.Database;
 
 object ProxyBlobStore {
-  val NO_DIR_MSG  = "Directories are an illusion";
   val NO_BULK_MSG = "Bulk operations are not implemented by Jortage for safety and speed";
 
   def hashToKey(hc: HashCode): String = {
@@ -365,23 +364,30 @@ class ProxyBlobStore(
   }
 
   override def clearContainer(container: String): Unit = {
-    log.debug(s"Uninplemented clearContainer($container)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+    log.debug(s"clearContainer($container)")
+    val p = db.delMappings(identity, container)
+    dispatcher.unsafeRunSync(p)
   }
 
   override def clearContainer(container: String, options: ListContainerOptions): Unit = {
-    log.debug(s"Uninplemented clearContainer($container, $options)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+    log.debug(s"clearContainer($container, $options)")
+    val p = Option(options.getPrefix()) match {
+      case Some(prefix) => db.delMappings(identity, container, prefix)
+      case None => db.delMappings(identity, container)
+    }
+    dispatcher.unsafeRunSync(p)
   }
 
   override def deleteContainer(container: String): Unit = {
-    log.debug(s"Uninplemented deleteContainer($container)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+    log.debug(s"deleteContainer($container)")
+    val p = db.delMappings(identity, container)
+    dispatcher.unsafeRunSync(p)
   }
 
   override def deleteContainerIfEmpty(container: String): Boolean = {
-    log.debug(s"Uninplemented deleteContainerIfEmpty($container)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+    log.debug(s"deleteContainerIfEmpty($container)")
+    val p = db.countMappings(identity, container).map { c => c == 0 }
+    dispatcher.unsafeRunSync(p)
   }
 
   override def list(): PageSet[StorageMetadata] = {

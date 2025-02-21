@@ -93,17 +93,62 @@ case class Database(
   def delMapping(user_name: String, bucket: String, file_key: String): IO[Int] =
     delMappingKeys(user_name, bucket, List(file_key))
 
-  val countMappingQ: Query[HashCode, Long] =
+  val delMappingsBucketC: Command[(String, String)] = {
+    sql"""
+      DELETE FROM file_mappings WHERE user_name = $text AND bucket = $text
+    """.command
+  }
+
+  def delMappings(user_name: String, bucket: String): IO[Int] = {
+    pool.use {
+      _.prepare(delMappingsBucketC)
+        .flatMap { pc => pc.execute(user_name, bucket) }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMappings execution should only return Delete")
+        }
+    }
+  }
+
+  val delMappingsPrefixC: Command[(String, String, String)] = {
+    sql"""
+      DELETE FROM file_mappings WHERE user_name = $text AND bucket = $text AND starts_with(file_key, $text)
+    """.command
+  }
+
+  def delMappings(user_name: String, bucket: String, prefix: String): IO[Int] = {
+    pool.use {
+      _.prepare(delMappingsPrefixC)
+        .flatMap { pc => pc.execute(user_name, bucket, prefix) }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMappings execution should only return Delete")
+        }
+    }
+  }
+
+  val countMappingsQ: Query[HashCode, Long] =
     sql"""
       SELECT COUNT(1) FROM file_mappings WHERE hash = $hashE
     """.query(int8)
 
   def countMappings(hash: HashCode): IO[Long] =
     pool.use {
-      _.prepare(countMappingQ)
+      _.prepare(countMappingsQ)
         .flatMap { ps =>
           ps.unique(hash)
         }
+    }
+
+  val countMappingsBucketQ: Query[(String, String), Long] =
+    sql"""
+      SELECT COUNT(1) FROM file_mappings WHERE user_name = $text AND bucket = $text
+    """.query(int8)
+
+  def countMappings(user_name: String, bucket: String): IO[Long] =
+    pool.use {
+      _.prepare(countMappingsBucketQ)
+        .flatMap { ps => ps.unique(user_name, bucket) }
     }
 
   val putMetadataC: Command[(HashCode, Long, String, Long, String)] =
