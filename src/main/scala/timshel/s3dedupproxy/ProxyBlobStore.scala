@@ -41,6 +41,9 @@ import timshel.s3dedupproxy.Database;
 object ProxyBlobStore {
   val NO_BULK_MSG = "Bulk operations are not implemented by Jortage for safety and speed";
 
+  @scala.annotation.nowarn("cat=deprecation")
+  val MD5 = Hashing.md5()
+
   def hashToKey(hc: HashCode): String = {
     val hash = hc.toString();
     "blobs/" + hash.substring(0, 1) + "/" + hash.substring(1, 4) + "/" + hash;
@@ -178,19 +181,21 @@ class ProxyBlobStore(
 
   override def putBlob(container: String, blob: Blob): String = {
     log.debug(s"putBlob($container, $blob)")
-    val name = blob.getMetadata().getName()
+    val name       = blob.getMetadata().getName()
+    val contenType = blob.getMetadata().getContentMetadata().getContentType()
 
     val p = (for {
       _ <- ensureContainerExists(container)
-      (size, hash) <- IO {
+      (size, hash, md5) <- IO {
         val is      = blob.getPayload().openStream();
         val counter = new com.google.common.io.CountingInputStream(is);
         val his     = new com.google.common.hash.HashingInputStream(Hashing.sha512(), counter)
-        blob.setPayload(his)
+        val md5     = new com.google.common.hash.HashingInputStream(ProxyBlobStore.MD5, his)
+        blob.setPayload(md5)
         bufferStore.putBlob(container, blob)
-        (counter.getCount(), his.hash())
+        (counter.getCount(), his.hash(), md5.hash())
       }
-      eTag <- processBufferDedup(container, name, hash, size)
+      eTag <- processBufferDedup(container, name, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
         IO {
@@ -201,7 +206,14 @@ class ProxyBlobStore(
     dispatcher.unsafeRunSync(p)
   }
 
-  def processBufferDedup(container: String, name: String, hash: HashCode, size: Long): IO[String] = {
+  def processBufferDedup(
+      container: String,
+      name: String,
+      hash: HashCode,
+      md5: HashCode,
+      size: Long,
+      contenType: String
+  ): IO[String] = {
     db.getMetadata(hash)
       .flatMap {
         case Some(metadata) => IO.pure(metadata.eTag)
@@ -214,7 +226,7 @@ class ProxyBlobStore(
               metadata.setName(ProxyBlobStore.hashToKey(hash))
               delegate().putBlob(bucket, blob, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart());
             }
-            _ <- db.putMetadata(hash, size, eTag)
+            _ <- db.putMetadata(hash, md5, size, eTag, contenType)
           } yield eTag
       }
       .flatMap { eTag =>
@@ -267,12 +279,13 @@ class ProxyBlobStore(
     bufferStore.abortMultipartUpload(mpu);
   }
 
-  def bufferStoreBlobHash(container: String, name: String): IO[(Long, HashCode)] = IO {
+  def bufferStoreBlobHash(container: String, name: String): IO[(Long, HashCode, HashCode)] = IO {
     Using(bufferStore.getBlob(container, name).getPayload().openStream()) { stream =>
       val counter = new com.google.common.io.CountingOutputStream(java.io.OutputStream.nullOutputStream());
       val hos     = new com.google.common.hash.HashingOutputStream(Hashing.sha512(), counter);
-      stream.transferTo(hos)
-      (counter.getCount(), hos.hash())
+      val md5     = new com.google.common.hash.HashingOutputStream(ProxyBlobStore.MD5, hos);
+      stream.transferTo(md5)
+      (counter.getCount(), hos.hash(), md5.hash())
     }.get
   }
 
@@ -280,14 +293,15 @@ class ProxyBlobStore(
   override def completeMultipartUpload(mpu: MultipartUpload, parts: java.util.List[MultipartPart]): String = {
     log.debug(s"completeMultipartUpload($mpu, $parts)")
 
-    val container = mpu.containerName()
-    val name      = mpu.blobName()
+    val container  = mpu.containerName()
+    val name       = mpu.blobName()
+    val contenType = mpu.blobMetadata().getContentMetadata().getContentType()
 
     val p = (for {
       completed <- IO(bufferStore.completeMultipartUpload(mpu, parts))
       _ = log.debug(s"Completed upload to bufferStore: $completed")
-      (size, hash) <- bufferStoreBlobHash(container, name)
-      eTag         <- processBufferDedup(container, name, hash, size)
+      (size, hash, md5) <- bufferStoreBlobHash(container, name)
+      eTag              <- processBufferDedup(container, name, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
         IO {
@@ -373,7 +387,7 @@ class ProxyBlobStore(
     log.debug(s"clearContainer($container, $options)")
     val p = Option(options.getPrefix()) match {
       case Some(prefix) => db.delMappings(identity, container, prefix)
-      case None => db.delMappings(identity, container)
+      case None         => db.delMappings(identity, container)
     }
     dispatcher.unsafeRunSync(p)
   }
@@ -391,18 +405,62 @@ class ProxyBlobStore(
   }
 
   override def list(): PageSet[StorageMetadata] = {
-    log.debug(s"Uninplemented list()")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+    log.debug(s"list()")
+    val p = db.getContainers(identity).map { containers =>
+      import scala.jdk.CollectionConverters._
+
+      val iter: java.lang.Iterable[StorageMetadata] = containers.map { c =>
+        val sm = org.jclouds.blobstore.domain.internal.MutableStorageMetadataImpl()
+
+        sm.setName(c)
+        sm.setSize(0L);
+
+        sm
+      }.asJava
+
+      new org.jclouds.blobstore.domain.internal.PageSetImpl[StorageMetadata](iter, null)
+    }
+    dispatcher.unsafeRunSync(p)
   }
 
-  override def list(container: String): PageSet[StorageMetadata] = {
-    log.debug(s"Uninplemented list($container)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+  def mapMetadata(mapping: Mapping): BlobMetadata = {
+    val metadata = new org.jclouds.io.payloads.BaseMutableContentMetadata()
+    metadata.setContentType(mapping.contentType)
+    metadata.setContentMD5(mapping.md5)
+    metadata.setContentLength(mapping.size)
+
+    val bm = new org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl()
+
+    bm.setId(mapping.uuid.toString)
+    bm.setContainer(mapping.bucket)
+    bm.setName(mapping.key)
+    bm.setETag(mapping.eTag)
+    bm.setSize(mapping.size)
+    bm.setType(org.jclouds.blobstore.domain.StorageType.BLOB)
+    bm.setCreationDate(java.util.Date.from(mapping.created.toInstant()))
+    bm.setLastModified(java.util.Date.from(mapping.updated.toInstant()))
+    bm.setContentMetadata(metadata)
+
+    bm
   }
 
-  override def list(container: String, options: ListContainerOptions): PageSet[StorageMetadata] = {
-    log.debug(s"Uninplemented list($container, $options)")
-    throw new UnsupportedOperationException(ProxyBlobStore.NO_BULK_MSG);
+  def mapMetadatas: PartialFunction[(List[Mapping], Option[java.util.UUID]), PageSet[BlobMetadata]] = {
+    case (mappings, marker) =>
+      import scala.jdk.CollectionConverters._
+      val iter: java.lang.Iterable[BlobMetadata] = mappings.map(mapMetadata).asJava
+      new org.jclouds.blobstore.domain.internal.PageSetImpl[BlobMetadata](iter, marker.map(_.toString).getOrElse(null))
+  }
+
+  override def list(container: String): PageSet[BlobMetadata] = {
+    log.debug(s"list($container)")
+    val p = db.getMappings(identity, container).map(mapMetadatas)
+    dispatcher.unsafeRunSync(p)
+  }
+
+  override def list(container: String, options: ListContainerOptions): PageSet[BlobMetadata] = {
+    log.debug(s"list($container, $options)")
+    val p = db.getMappings(identity, container).map(mapMetadatas)
+    dispatcher.unsafeRunSync(p)
   }
 
   override def createDirectory(container: String, directory: String) = {

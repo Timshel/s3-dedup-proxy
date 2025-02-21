@@ -1,12 +1,14 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE file_metadata(
-        hash bytea      NOT NULL,
-        size BIGINT     NOT NULL,
-        etag TEXT       NOT NULL,
+        hash            bytea NOT NULL,
+        md5             bytea NOT NULL,
+        size            BIGINT NOT NULL,
+        etag            TEXT NOT NULL,
+        content_type    TEXT NOT NULL,
 
-        created         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
-        updated         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        created         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
         PRIMARY KEY (hash)
 );
@@ -18,8 +20,8 @@ CREATE TABLE file_mappings(
         file_key        TEXT NOT NULL,
         hash            bytea NOT NULL,
 
-        created         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
-        updated         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        created         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
         PRIMARY KEY (uuid),
         FOREIGN KEY(hash) REFERENCES file_metadata(hash) ON UPDATE CASCADE ON DELETE CASCADE

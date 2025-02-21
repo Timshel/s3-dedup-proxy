@@ -2,24 +2,44 @@ package timshel.s3dedupproxy
 
 import cats.effect._
 import cats.effect.unsafe.IORuntime
+import com.google.common.hash.HashCode;
+import java.time.OffsetDateTime
+import java.util.UUID
 import skunk._
 import skunk.data.Completion
 import skunk.implicits._
 import skunk.codec.all._
 
-import com.google.common.hash.HashCode;
-
 case class Metadata(
     size: Long,
-    eTag: String
+    eTag: String,
+    contentType: String
 )
+
+case class Mapping(
+    uuid: UUID,
+    bucket: String,
+    key: String,
+    hash: HashCode,
+    md5: HashCode,
+    size: Long,
+    eTag: String,
+    contentType: String,
+    created: OffsetDateTime,
+    updated: OffsetDateTime
+)
+
+object Database {
+  val hashD: Decoder[HashCode] = bytea.map(HashCode.fromBytes(_))
+  val hashE: Encoder[HashCode] = bytea.contramap(_.asBytes())
+  val UUID_ZERO                = new UUID(0L, 0L)
+  val PAGE_SIZE                = 100
+}
 
 case class Database(
     pool: Resource[IO, Session[IO]]
 )(implicit runtime: IORuntime) {
-
-  val hashD: Decoder[HashCode] = bytea.map(HashCode.fromBytes(_))
-  val hashE: Encoder[HashCode] = bytea.contramap(_.asBytes())
+  import Database.*
 
   val mappingHashQ: Query[String *: String *: String *: EmptyTuple, HashCode] =
     sql"""
@@ -151,27 +171,27 @@ case class Database(
         .flatMap { ps => ps.unique(user_name, bucket) }
     }
 
-  val putMetadataC: Command[(HashCode, Long, String, Long, String)] =
+  val putMetadataC: Command[(HashCode, HashCode, Long, String, String, String, String)] =
     sql"""
-      INSERT INTO file_metadata (hash, size, etag) VALUES ($hashE, $int8, $text)
-        ON CONFLICT (hash) DO UPDATE SET size = $int8, etag= $text, updated = now();
+      INSERT INTO file_metadata (hash, md5, size, etag, content_type) VALUES ($hashE, $hashE, $int8, $text, $text)
+        ON CONFLICT (hash) DO UPDATE SET etag= $text, content_type = $text, updated = now();
     """.command
 
-  def putMetadata(hash: HashCode, size: Long, eTag: String): IO[Completion] = {
+  def putMetadata(hash: HashCode, md5: HashCode, size: Long, eTag: String, contentType: String): IO[Completion] = {
     pool.use {
       _.prepare(putMetadataC)
         .flatMap { pc =>
-          pc.execute(hash, size, eTag, size, eTag)
+          pc.execute(hash, md5, size, eTag, contentType, eTag, contentType)
         }
     }
   }
 
   val getMetadataQ: Query[HashCode, Metadata] =
     sql"""
-      SELECT size, etag FROM file_metadata WHERE hash = $hashE
+      SELECT size, etag, content_type FROM file_metadata WHERE hash = $hashE
     """
-      .query(int8 ~ text)
-      .map { case s ~ e => Metadata(s, e) }
+      .query(int8 ~ text ~ text)
+      .map { case s ~ e ~ ct => Metadata(s, e, ct) }
 
   def getMetadata(hashCode: HashCode): IO[Option[Metadata]] =
     pool.use {
@@ -196,4 +216,56 @@ case class Database(
         }
     }
   }
+
+  def withMaker(mappings: List[Mapping]): (List[Mapping], Option[UUID]) = {
+    if (mappings.size == PAGE_SIZE) {
+      (mappings, mappings.lastOption.map(_.uuid))
+    } else (mappings, None)
+  }
+
+  val getContainersQ: Query[String, String] =
+    sql"""
+      SELECT distinct file_mappings.bucket
+        FROM file_mappings
+        WHERE user_name = $text
+        ORDER BY bucket ASC
+    """
+      .query(text)
+
+  def getContainers(user_name: String): IO[List[String]] = {
+    pool
+      .use {
+        _.prepare(getContainersQ)
+          .flatMap { pc => pc.stream(user_name, PAGE_SIZE).compile.toList }
+      }
+  }
+
+  val getMappingsQ: Query[(String, String, UUID, Int), Mapping] =
+    sql"""
+      SELECT
+          file_mappings.uuid, file_mappings.bucket, file_mappings.file_key,
+          file_metadata.hash, file_metadata.md5, file_metadata.size, file_metadata.etag, file_metadata.content_type,
+          file_mappings.created, file_mappings.updated
+        FROM file_mappings
+          INNER JOIN file_metadata ON file_metadata.hash = file_mappings.hash
+        WHERE user_name = $text
+          AND file_mappings.bucket = $text
+          AND file_mappings.uuid > $uuid
+        ORDER BY file_mappings.file_key ASC
+        LIMIT $int4
+    """
+      .query(uuid ~ text ~ text ~ hashD ~ hashD ~ int8 ~ text ~ text ~ timestamptz ~ timestamptz)
+      .map { case uu ~ b ~ k ~ h ~ m ~ s ~ e ~ ct ~ c ~ u => Mapping(uu, b, k, h, m, s, e, ct, c, u) }
+
+  def getMappings(user_name: String, bucket: String, marker: Option[UUID] = None): IO[(List[Mapping], Option[UUID])] = {
+    val after = marker.getOrElse(UUID_ZERO)
+
+    pool
+      .use {
+        _.prepare(getMappingsQ)
+          .flatMap { pc => pc.stream((user_name, bucket, UUID_ZERO, PAGE_SIZE), PAGE_SIZE).compile.toList }
+      }
+      .map(withMaker)
+  }
+
 }

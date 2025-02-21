@@ -24,9 +24,9 @@ class PgIntegrationTests extends CatsEffectSuite {
       val hashCode = HashCode.fromInt(12);
 
       for {
-        _ <- a.database.putMetadata(hashCode, 10L, "A")
-        _ <- a.database.putMetadata(hashCode, 12L, "B")
-        _ <- assertIO(a.database.getMetadata(hashCode), Some(Metadata(12L, "B")))
+        _ <- a.database.putMetadata(hashCode, hashCode, 10L, "A", "CT")
+        _ <- a.database.putMetadata(hashCode, hashCode, 12L, "B", "CT")
+        _ <- assertIO(a.database.getMetadata(hashCode), Some(Metadata(10L, "B", "CT")))
         _ <- assertIO(a.database.delMetadata(hashCode), 1)
       } yield ()
     }
@@ -37,9 +37,9 @@ class PgIntegrationTests extends CatsEffectSuite {
       val hashCode = HashCode.fromInt(12);
 
       for {
-        _ <- a.database.putMetadata(hashCode, 10L, "A")
-
+        _ <- a.database.putMetadata(hashCode, hashCode, 10L, "A", "CT")
         _ <- a.database.putMapping("A", "bucket", "B", hashCode)
+        _ <- assertIO(a.database.getMappings("A", "bucket").map(_._1.map(_.hash)), List(hashCode))
         _ <- a.database.putMapping("A", "bucket", "B", hashCode)
         _ <- assertIO(a.database.getMappingHash("A", "bucket", "B"), Some(hashCode))
         _ <- assertIO(a.database.countMappings(hashCode), 1L)
