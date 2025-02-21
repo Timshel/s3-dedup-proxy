@@ -3,7 +3,6 @@ package timshel.s3dedupproxy
 import cats.effect._
 import cats.effect.std.Dispatcher
 import com.google.common.collect.{ImmutableList, Maps};
-import com.jortage.poolmgr.JortageBlobStore
 import java.io.File;
 import java.net.URI;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;

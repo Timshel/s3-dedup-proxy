@@ -38,7 +38,6 @@ import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.FilePayload;
 import scala.util.Using
 
-import com.jortage.poolmgr.FileReprocessor;
 import timshel.s3dedupproxy.Database;
 
 object ProxyBlobStore {
@@ -224,9 +223,19 @@ class ProxyBlobStore(
       toName: String,
       options: CopyOptions
   ): String = {
-    val hash = db.getMappingHashU(identity, fromContainer, fromName);
-    db.putMappingU(identity, toContainer, toName, hash);
-    blobMetadata(bucket, ProxyBlobStore.hashToKey(hash)).getETag();
+    val p = for {
+      hash <- db.getMappingHash(identity, fromContainer, fromName).map {
+        case Some(hash) => hash
+        case None       => throw new IllegalArgumentException("Not found")
+      }
+      _ <- db.putMapping(identity, toContainer, toName, hash)
+      metadata <- db.getMetadata(hash).map {
+        case Some(metadata) => metadata
+        case None           => throw new IllegalArgumentException("Not found")
+      }
+    } yield metadata.eTag
+
+    dispatcher.unsafeRunSync(p)
   }
 
   override def initiateMultipartUpload(container: String, blobMetadata: BlobMetadata, options: PutOptions): MultipartUpload = {
@@ -267,7 +276,7 @@ class ProxyBlobStore(
       completed <- IO(bufferStore.completeMultipartUpload(mpu, parts))
       _ = log.debug(s"Completed upload to bufferStore: $completed")
       (size, hash) <- bufferStoreBlobHash(container, name)
-      eTag <- processBufferDedup(container, name, hash, size)
+      eTag         <- processBufferDedup(container, name, hash, size)
     } yield eTag)
       .onError { e =>
         IO {
@@ -297,16 +306,11 @@ class ProxyBlobStore(
     return putBlob(container, blob);
   }
 
+  // TODO cleanup will be handled separatly
   override def removeBlob(container: String, name: String): Unit = {
-    val hc = db.getMappingHashU(identity, container, name);
-    if (db.delMappingU(identity, container, name)) {
-      val rc = db.countMappingsU(hc);
-      if (rc == 0L) {
-        val path = ProxyBlobStore.hashToKey(hc);
-        delegate().removeBlob(bucket, path);
-        db.delMetadataU(hc);
-      }
-    }
+    val p = db.delMapping(identity, container, name)
+
+    dispatcher.unsafeRunSync(p)
   }
 
   override def removeBlobs(container: String, iterable: java.lang.Iterable[String]): Unit = {

@@ -37,9 +37,6 @@ case class Database(
         }
     }
 
-  def getMappingHashU(user_name: String, bucket: String, file_key: String): HashCode =
-    getMappingHash(user_name, bucket, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
-
   val putMappingC: Command[(String, String, String, HashCode, HashCode)] =
     sql"""
       INSERT INTO file_mappings (user_name, bucket, file_key, hash) VALUES ($text, $text, $text, $hashE)
@@ -54,9 +51,6 @@ case class Database(
         }
     }
   }
-
-  def putMappingU(user_name: String, bucket: String, file_key: String, hash: HashCode): Completion =
-    putMapping(user_name, bucket, file_key, hash).unsafeRunSync()
 
   val delMappingC: Command[(String, String, String)] =
     sql"""
@@ -76,9 +70,6 @@ case class Database(
     }
   }
 
-  def delMappingU(user_name: String, bucket: String, file_key: String): Boolean =
-    delMapping(user_name, bucket, file_key).unsafeRunSync() > 0
-
   val countMappingQ: Query[HashCode, Long] =
     sql"""
       SELECT COUNT(1) FROM file_mappings WHERE hash = $hashE
@@ -91,11 +82,6 @@ case class Database(
           ps.unique(hash)
         }
     }
-
-  def countMappingsU(hash: HashCode): Long =
-    countMappings(hash).unsafeRunSync()
-
-  def isMapped(hash: HashCode): Boolean = countMappingsU(hash) > 0
 
   val putMetadataC: Command[(HashCode, Long, String, Long, String)] =
     sql"""
@@ -111,9 +97,6 @@ case class Database(
         }
     }
   }
-
-  def putMetadataU(hash: HashCode, size: Long, eTag: String): Completion =
-    putMetadata(hash, size, eTag).unsafeRunSync()
 
   val getMetadataQ: Query[HashCode, Metadata] =
     sql"""
@@ -145,82 +128,4 @@ case class Database(
         }
     }
   }
-
-  def delMetadataU(hash: HashCode): Int =
-    delMetadata(hash).unsafeRunSync()
-
-  val putMultipartC: Command[(String, String, String, String, String)] =
-    sql"""
-      INSERT INTO multipart_uploads (user_name, bucket, file_key, tempfile) VALUES ($text, $text, $text, $text)
-        ON CONFLICT (user_name, bucket, file_key) DO UPDATE SET tempfile = $text, updated = now();
-    """.command
-
-  def putMultipart(user_name: String, bucket: String, file_key: String, temp_file: String): IO[Completion] = {
-    pool.use {
-      _.prepare(putMultipartC)
-        .flatMap { pc =>
-          pc.execute(user_name, bucket, file_key, temp_file, temp_file)
-        }
-    }
-  }
-
-  def putMultipartU(user_name: String, bucket: String, file_key: String, temp_file: String): Completion =
-    putMultipart(user_name, bucket, file_key, temp_file).unsafeRunSync()
-
-  val multipartFileQ: Query[String *: String *: String *: EmptyTuple, String] =
-    sql"""
-      SELECT tempfile FROM multipart_uploads
-        WHERE user_name = $text
-          AND bucket = $text
-          AND file_key = $text
-    """.query(text)
-
-  def getMultipartFile(user_name: String, bucket: String, file_key: String): IO[Option[String]] =
-    pool.use {
-      _.prepare(multipartFileQ)
-        .flatMap { ps =>
-          ps.option(user_name, bucket, file_key)
-        }
-    }
-
-  def getMultipartFileU(user_name: String, bucket: String, file_key: String): String =
-    getMultipartFile(user_name, bucket, file_key).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
-
-  val multipartKeyQ: Query[String, String ~ String] =
-    sql"""
-      SELECT bucket, file_key FROM multipart_uploads WHERE tempfile = $text
-    """.query(text ~ text)
-
-  def getMultipartKey(tempfile: String): IO[Option[(String, String)]] =
-    pool.use {
-      _.prepare(multipartKeyQ)
-        .flatMap { ps =>
-          ps.option(tempfile)
-        }
-    }
-
-  def getMultipartKeyU(tempfile: String): (String, String) =
-    getMultipartKey(tempfile).unsafeRunSync().getOrElse(throw new IllegalArgumentException("Not found"));
-
-  val delMultipartC: Command[String] =
-    sql"""
-      DELETE FROM multipart_uploads WHERE tempfile = $text
-    """.command
-
-  def delMultipart(tempfile: String): IO[Int] = {
-    pool.use {
-      _.prepare(delMultipartC)
-        .flatMap { pc =>
-          pc.execute(tempfile)
-        }
-        .map {
-          case Completion.Delete(count) => count
-          case _                        => throw new AssertionError("delMapping execution should only return Delete")
-        }
-    }
-  }
-
-  def delMultipartU(tempfile: String): Int =
-    delMultipart(tempfile).unsafeRunSync()
-
 }
