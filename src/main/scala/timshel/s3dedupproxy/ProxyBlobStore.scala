@@ -459,7 +459,7 @@ class ProxyBlobStore(
 
   override def list(container: String, options: ListContainerOptions): PageSet[BlobMetadata] = {
     log.debug(s"list($container, $options)")
-    val p = db.getMappings(identity, container).map(mapMetadatas)
+    val p = db.getMappings(identity, container, Option(options.getPrefix)).map(mapMetadatas)
     dispatcher.unsafeRunSync(p)
   }
 

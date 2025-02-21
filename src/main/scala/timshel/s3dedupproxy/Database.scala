@@ -240,7 +240,7 @@ case class Database(
       }
   }
 
-  val getMappingsQ: Query[(String, String, UUID, Int), Mapping] =
+  val getMappingsQ: Query[(String, String, String, UUID, Int), Mapping] =
     sql"""
       SELECT
           file_mappings.uuid, file_mappings.bucket, file_mappings.file_key,
@@ -250,6 +250,7 @@ case class Database(
           INNER JOIN file_metadata ON file_metadata.hash = file_mappings.hash
         WHERE user_name = $text
           AND file_mappings.bucket = $text
+          AND starts_with(file_mappings.file_key, $text)
           AND file_mappings.uuid > $uuid
         ORDER BY file_mappings.file_key ASC
         LIMIT $int4
@@ -257,13 +258,14 @@ case class Database(
       .query(uuid ~ text ~ text ~ hashD ~ hashD ~ int8 ~ text ~ text ~ timestamptz ~ timestamptz)
       .map { case uu ~ b ~ k ~ h ~ m ~ s ~ e ~ ct ~ c ~ u => Mapping(uu, b, k, h, m, s, e, ct, c, u) }
 
-  def getMappings(user_name: String, bucket: String, marker: Option[UUID] = None): IO[(List[Mapping], Option[UUID])] = {
+  def getMappings(user_name: String, bucket: String, prefix: Option[String] = None, marker: Option[UUID] = None): IO[(List[Mapping], Option[UUID])] = {
     val after = marker.getOrElse(UUID_ZERO)
+    val pre = prefix.getOrElse("")
 
     pool
       .use {
         _.prepare(getMappingsQ)
-          .flatMap { pc => pc.stream((user_name, bucket, UUID_ZERO, PAGE_SIZE), PAGE_SIZE).compile.toList }
+          .flatMap { pc => pc.stream((user_name, bucket, pre, UUID_ZERO, PAGE_SIZE), PAGE_SIZE).compile.toList }
       }
       .map(withMaker)
   }
