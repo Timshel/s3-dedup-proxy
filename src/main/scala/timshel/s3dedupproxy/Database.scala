@@ -52,23 +52,46 @@ case class Database(
     }
   }
 
-  val delMappingC: Command[(String, String, String)] =
+  def delMappingsC(count: Int): Command[List[(String, String, String)]] = {
+    val enc = (text *: text *: text).values.list(count)
     sql"""
-      DELETE FROM file_mappings WHERE user_name = $text AND bucket = $text AND file_key = $text
+      DELETE FROM file_mappings WHERE (user_name, bucket, file_key) = ANY(Array[$enc])
     """.command
+  }
 
-  def delMapping(user_name: String, bucket: String, file_key: String): IO[Int] = {
+  def delMappings(mappings: List[(String, String, String)]): IO[Int] = {
     pool.use {
-      _.prepare(delMappingC)
-        .flatMap { pc =>
-          pc.execute(user_name, bucket, file_key)
-        }
+      _.prepare(delMappingsC(mappings.size))
+        .flatMap { pc => pc.execute(mappings) }
         .map {
           case Completion.Delete(count) => count
-          case _                        => throw new AssertionError("delMapping execution should only return Delete")
+          case _                        => throw new AssertionError("delMappings execution should only return Delete")
         }
     }
   }
+
+  def delMappingKeysC(count: Int): Command[(String, String, List[String])] = {
+    sql"""
+      DELETE FROM file_mappings
+        WHERE user_name = $text
+          AND bucket = $text
+          AND file_key IN (${text.list(count)})
+    """.command
+  }
+
+  def delMappingKeys(user_name: String, bucket: String, keys: List[String]): IO[Int] = {
+    pool.use {
+      _.prepare(delMappingKeysC(keys.size))
+        .flatMap { pc => pc.execute(user_name, bucket, keys) }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMappingKeys execution should only return Delete")
+        }
+    }
+  }
+
+  def delMapping(user_name: String, bucket: String, file_key: String): IO[Int] =
+    delMappingKeys(user_name, bucket, List(file_key))
 
   val countMappingQ: Query[HashCode, Long] =
     sql"""

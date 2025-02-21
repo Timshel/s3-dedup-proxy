@@ -10,8 +10,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
-import java.util.List;
-import java.util.Set;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -75,6 +73,7 @@ class ProxyBlobStore(
   }
 
   override def getBlob(container: String, name: String): Blob = {
+    log.debug(s"getBlob($container, $name)")
     val p = getMapKey(container, name).map {
       case Some(key) => delegate().getBlob(bucket, key)
       case None      => null
@@ -83,6 +82,7 @@ class ProxyBlobStore(
   }
 
   override def getBlob(container: String, name: String, getOptions: GetOptions): Blob = {
+    log.debug(s"getBlob($container, $name, $getOptions)")
     val p = getMapKey(container, name).map {
       case Some(key) => delegate().getBlob(bucket, key, getOptions)
       case None      => null
@@ -91,71 +91,83 @@ class ProxyBlobStore(
   }
 
   override def downloadBlob(container: String, name: String, destination: File): Unit = {
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().downloadBlob(bucket, key, destination)
-      case None      => {}
+    log.debug(s"downloadBlob($container, $name, $destination)")
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO(delegate().downloadBlob(bucket, key, destination))
+      case None      => IO.pure[Unit](())
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def downloadBlob(container: String, name: String, destination: File, executor: ExecutorService): Unit = {
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().downloadBlob(bucket, key, destination, executor)
-      case None      => {}
+    log.debug(s"downloadBlob($container, $name, $destination, ES)")
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO(delegate().downloadBlob(bucket, key, destination, executor))
+      case None      => IO.pure[Unit](())
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def streamBlob(container: String, name: String): InputStream = {
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().streamBlob(bucket, key)
-      case None      => null
+    log.debug(s"streamBlob($container, $name)")
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO(delegate().streamBlob(bucket, key))
+      case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def streamBlob(container: String, name: String, executor: ExecutorService): InputStream = {
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().streamBlob(bucket, key, executor)
-      case None      => null
+    log.debug(s"streamBlob($container, $name, ES)")
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO(delegate().streamBlob(bucket, key, executor))
+      case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def getBlobAccess(container: String, name: String): BlobAccess = {
+    log.debug(s"getBlobAccess($container, $name)")
     BlobAccess.PUBLIC_READ;
   }
 
   override def getContainerAccess(container: String): ContainerAccess = {
+    log.debug(s"getContainerAccess($container)")
     ContainerAccess.PUBLIC_READ;
   }
 
   override def blobExists(container: String, name: String): Boolean = {
+    log.debug(s"blobExists($container, $name)")
     val p = getMapKey(container, name).map { k => k.isDefined }
     dispatcher.unsafeRunSync(p)
   }
 
   override def blobMetadata(container: String, name: String): BlobMetadata = {
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().blobMetadata(bucket, key)
-      case None      => null
+    log.debug(s"blobMetadata($container, $name)")
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO(delegate().blobMetadata(bucket, key))
+      case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def directoryExists(container: String, directory: String): Boolean = {
-    throw new UnsupportedOperationException();
+    log.debug(s"directoryExists($container, $directory)")
+    true
   }
 
   override def getMaximumNumberOfParts(): Int = {
+    log.debug(s"getMaximumNumberOfParts()")
     delegate().getMaximumNumberOfParts();
   }
 
   override def getMinimumMultipartPartSize(): Long = {
+    log.debug(s"getMinimumMultipartPartSize()")
     delegate().getMinimumMultipartPartSize();
   }
 
   override def getMaximumMultipartPartSize(): Long = {
+    log.debug(s"getMaximumMultipartPartSize()")
     delegate().getMaximumMultipartPartSize();
   }
 
@@ -266,7 +278,7 @@ class ProxyBlobStore(
   }
 
   // Not the most efficient since we read the file to compute the size and hash
-  override def completeMultipartUpload(mpu: MultipartUpload, parts: List[MultipartPart]): String = {
+  override def completeMultipartUpload(mpu: MultipartUpload, parts: java.util.List[MultipartPart]): String = {
     log.debug(s"completeMultipartUpload($mpu, $parts)")
 
     val container = mpu.containerName()
@@ -292,12 +304,12 @@ class ProxyBlobStore(
     bufferStore.uploadMultipartPart(mpu, partNumber, payload)
   }
 
-  override def listMultipartUpload(mpu: MultipartUpload): List[MultipartPart] = {
+  override def listMultipartUpload(mpu: MultipartUpload): java.util.List[MultipartPart] = {
     log.debug(s"listMultipartUpload($mpu)")
     bufferStore.listMultipartUpload(mpu)
   }
 
-  override def listMultipartUploads(container: String): List[MultipartUpload] = {
+  override def listMultipartUploads(container: String): java.util.List[MultipartUpload] = {
     log.debug(s"listMultipartUploads($container)")
     bufferStore.listMultipartUploads(container)
   }
@@ -308,25 +320,26 @@ class ProxyBlobStore(
 
   // TODO cleanup will be handled separatly
   override def removeBlob(container: String, name: String): Unit = {
+    log.debug(s"removeBlob($container, $name)")
     val p = db.delMapping(identity, container, name)
-
     dispatcher.unsafeRunSync(p)
   }
 
   override def removeBlobs(container: String, iterable: java.lang.Iterable[String]): Unit = {
-    iterable.forEach((key) => {
-      removeBlob(container, key);
-    })
+    log.debug(s"removeBlobs($container, $iterable)")
+    import scala.jdk.CollectionConverters._
+    val p = db.delMappingKeys(identity, container, iterable.asScala.toList)
+    dispatcher.unsafeRunSync(p)
   }
 
-  override def listAssignableLocations(): Set[Location] = {
-    Collections.singleton(
-      new LocationImpl(LocationScope.PROVIDER, "jort", "jort", null, Collections.emptySet(), Collections.emptyMap())
-    );
+  override def listAssignableLocations(): java.util.Set[Location] = {
+    log.debug(s"listAssignableLocations()")
+    java.util.Collections.emptySet[Location]()
   }
 
   override def createContainerInLocation(location: Location, container: String): Boolean = {
-    true;
+    log.debug(s"createContainerInLocation($location, $container)")
+    true
   }
 
   override def createContainerInLocation(
@@ -334,14 +347,22 @@ class ProxyBlobStore(
       container: String,
       createContainerOptions: CreateContainerOptions
   ): Boolean = {
-    true;
+    log.debug(s"createContainerInLocation($location, $container, $createContainerOptions)")
+    true
   }
 
-  override def containerExists(container: String): Boolean = true
+  override def containerExists(container: String): Boolean = {
+    log.debug(s"containerExists($container)")
+    true
+  }
 
-  override def setContainerAccess(container: String, containerAccess: ContainerAccess): Unit = {}
+  override def setContainerAccess(container: String, containerAccess: ContainerAccess): Unit = {
+    log.debug(s"setContainerAccess($container, $containerAccess)")
+  }
 
-  override def setBlobAccess(container: String, name: String, access: BlobAccess): Unit = {}
+  override def setBlobAccess(container: String, name: String, access: BlobAccess): Unit = {
+    log.debug(s"setBlobAccess($container, $name, $access)")
+  }
 
   override def clearContainer(container: String): Unit = {
     log.debug(s"Uninplemented clearContainer($container)")
