@@ -1,7 +1,43 @@
 
-This is a fork of https://github.com/jortage/poolmgr
+# S3-Dedup-Proxy
+
+This project allows to run a deduplication proxy in front of an S3 compatible object store.
+\
+Heavily inspired by https://github.com/jortage/poolmgr and use https://github.com/gaul/s3proxy for the proxy part.
+
+When a client send a file, it will be downloaded locally, hashed (sha512) and then stored in the object store only if not already present.
+\
+The client view/buckets are virtual and stored in Postgres.
 
 ## Usage
+
+### Build
+
+You will need a Java JDK installed and [sbt](https://www.scala-sbt.org/download/).
+
+```bash
+> sbt stage
+...
+> ls -l target/universal/stage
+drwxr-xr-x 2  4096 Feb 25 18:37 bin
+drwxr-xr-x 2 20480 Feb 25 18:37 lib
+```
+
+### Running
+
+You first will need to create a config file, you can take inspiration from [application.conf](docker.application.conf).
+
+```bash
+> ls -l
+-rw-r--r-- 1   641 Feb 25 18:41 application.conf
+drwxr-xr-x 2  4096 Feb 25 18:37 bin
+drwxr-xr-x 2 20480 Feb 25 18:37 lib
+> ./bin/s3-dedup-proxy -Dconfig.file=application.conf
+```
+
+Log backend use slf4j simple logger and can be configured using parameters such as `-Dorg.slf4j.simpleLogger.log.timshel.s3dedupproxy=info`.
+
+## Docker demo
 
 The `--build` ensure that the image is up to date (In case of `Could not connect to 127.0.0.1:3306` error just retry, the DB was just not completely up).
 
@@ -11,11 +47,11 @@ The `--build` ensure that the image is up to date (In case of `Could not connect
 
 This will run three services:
 
-- `S3DedupProxy`: the proxy itself (bind 23278, 23279 and 23290)
+- `S3DedupProxy`: the proxy itself bind 23278
 - `Postgres`: the database to store the file metadata (binded on 3306)
 - `S3Proxy`: used as local S3 store (binded on 8080)
 
-You will need to create the `blobs` bucket in the `S3Proxy` store, since it's run without authentication it can be done with `curl`:
+You will need to create the `mastodon` bucket in the `S3Proxy` store, since it's run without authentication it can be done with `curl`:
 
 ```bash
 curl --request PUT http://127.0.0.1:8080/mastodon

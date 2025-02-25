@@ -258,9 +258,14 @@ case class Database(
       .query(uuid ~ text ~ text ~ hashD ~ hashD ~ int8 ~ text ~ text ~ timestamptz ~ timestamptz)
       .map { case uu ~ b ~ k ~ h ~ m ~ s ~ e ~ ct ~ c ~ u => Mapping(uu, b, k, h, m, s, e, ct, c, u) }
 
-  def getMappings(user_name: String, bucket: String, prefix: Option[String] = None, marker: Option[UUID] = None): IO[(List[Mapping], Option[UUID])] = {
+  def getMappings(
+      user_name: String,
+      bucket: String,
+      prefix: Option[String] = None,
+      marker: Option[UUID] = None
+  ): IO[(List[Mapping], Option[UUID])] = {
     val after = marker.getOrElse(UUID_ZERO)
-    val pre = prefix.getOrElse("")
+    val pre   = prefix.getOrElse("")
 
     pool
       .use {

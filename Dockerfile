@@ -29,7 +29,8 @@ RUN apt-get update \
         openjdk-17-jre
 
 COPY --from=build /s3-dedup-proxy/target/universal/stage /s3-dedup-proxy
+COPY docker.application.conf /s3-dedup-proxy/application.conf
 
 WORKDIR /s3-dedup-proxy
 
-ENTRYPOINT ["/s3-dedup-proxy/bin/s3-dedup-proxy"]
+ENTRYPOINT ["/s3-dedup-proxy/bin/s3-dedup-proxy", "-Dconfig.file=application.conf"]

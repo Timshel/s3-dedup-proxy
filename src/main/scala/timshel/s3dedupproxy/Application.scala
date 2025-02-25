@@ -19,27 +19,18 @@ import timshel.s3dedupproxy.{BackendConfig, Database, GlobalConfig};
 case class Application(
     config: GlobalConfig,
     database: Database,
-    flyway: Flyway,
     proxy: S3Proxy
 ) {
+  import Application._
 
-  def migrate(): IO[org.flywaydb.core.api.output.MigrateResult] = IO {
-    val mr = this.flyway.migrate();
-    if (!mr.success) throw new RuntimeException("Migration failure")
-    mr
-  }
-
-  def start(): IO[ExitCode] = {
-    for {
-      _ <- migrate()
-      _ <- startProxy()
-      _ <- IO.never
-    } yield ExitCode.Success
-  }
-
-  def startProxy(): IO[Unit] = IO {
+  def start(): IO[Unit] = IO {
     proxy.start()
     Application.log.info("ready on http://localhost:23278")
+  }
+
+  def stop(): IO[Unit] = IO {
+    log.info("Application is stopping")
+    proxy.stop()
   }
 }
 
@@ -49,7 +40,10 @@ object Application extends IOApp {
   /** */
   def run(args: List[String]): IO[ExitCode] = {
     default().use { app =>
-      app.start()
+      (for {
+        _ <- migration(app.config.db)
+        _ <- app.start()
+      } yield ()).bracket(_ => IO.never)(_ => app.stop())
     }
   }
 
@@ -75,20 +69,29 @@ object Application extends IOApp {
         max = 10
       )
       dispatcher <- Dispatcher.parallel[IO]
-    } yield (pool, dispatcher))
-      .evalMap { case (pool, dispatcher) =>
-        for {
-          ds  <- simpleDataSource(config.db)
-          fly <- IO(Flyway.configure().dataSource(ds).load())
-          database = Database(pool)(runtime)
-          proxy    = createProxy(config, database, dispatcher)
-        } yield Application(config, database, fly, proxy)
-      }
+    } yield {
+      val database = Database(pool)(runtime)
+      val proxy    = createProxy(config, database, dispatcher)
+
+      Application(config, database, proxy)
+    })
       .evalTap { _ =>
         IO {
           config.users.keys.foreach { identity => bufferStorePath(identity).mkdirs() }
           log.debug(s"Buffer store path created for users (${config.users.keys})")
         }
+      }
+  }
+
+  def migration(config: DBConfig): IO[Unit] = {
+    (for {
+      ds  <- simpleDataSource(config)
+      fly <- IO(Flyway.configure().dataSource(ds).load())
+      mr  <- IO(fly.migrate())
+    } yield mr)
+      .flatMap {
+        case mr if mr.success => IO.pure(())
+        case _                => IO.raiseError(new RuntimeException("Migration failure"))
       }
   }
 

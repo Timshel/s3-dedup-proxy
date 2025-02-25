@@ -21,12 +21,7 @@ case class BackendConfig(
     publicHost: String
 ) derives ConfigReader
 
-case class RivetConfig(enabled: Boolean) derives ConfigReader
-
 case class GlobalConfig(
-    useNewUrls: Boolean,
-    readOnly: Boolean,
-    rivet: RivetConfig,
     backend: BackendConfig,
     backupBackend: Option[BackendConfig] = None,
     db: DBConfig,
