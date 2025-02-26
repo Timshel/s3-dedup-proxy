@@ -8,6 +8,8 @@ import java.net.URI;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.flywaydb.core.Flyway;
 import org.gaul.s3proxy.S3Proxy;
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.server.middleware.Logger
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.ContextBuilder;
 import org.postgresql.ds.PGSimpleDataSource
@@ -43,7 +45,18 @@ object Application extends IOApp {
       (for {
         _ <- migration(app.config.db)
         _ <- app.start()
-      } yield ()).bracket(_ => IO.never)(_ => app.stop())
+      } yield {
+        val httpApp = org.http4s.server.Router(
+          "/proxy/" -> RedirectionController(app.config.backend, app.database).routes
+        ).orNotFound
+
+        EmberServerBuilder.default[IO]
+          .withHost(app.config.api.host)
+          .withPort(app.config.api.port)
+          .withHttpApp(Logger.httpApp(true, true)(httpApp))
+          .build
+      }
+    ).bracket(server => server.use(_ => IO.never))(_ => app.stop())
     }
   }
 
@@ -61,8 +74,8 @@ object Application extends IOApp {
 
     (for {
       pool <- Session.pooled[IO](
-        host = config.db.host,
-        port = config.db.port,
+        host = config.db.host.toString,
+        port = config.db.port.value,
         user = config.db.user,
         database = config.db.database,
         password = Some(config.db.pass),
@@ -97,8 +110,8 @@ object Application extends IOApp {
 
   def simpleDataSource(config: DBConfig): IO[PGSimpleDataSource] = IO {
     val ds = org.postgresql.ds.PGSimpleDataSource()
-    ds.setServerNames(Array(config.host))
-    ds.setPortNumbers(Array(config.port))
+    ds.setServerNames(Array(config.host.toString))
+    ds.setPortNumbers(Array(config.port.value))
     ds.setUser(config.user)
     ds.setPassword(config.pass)
     ds.setDatabaseName(config.database)

@@ -39,8 +39,6 @@ import scala.util.Using
 import timshel.s3dedupproxy.Database;
 
 object ProxyBlobStore {
-  val NO_BULK_MSG = "Bulk operations are not implemented by Jortage for safety and speed";
-
   @scala.annotation.nowarn("cat=deprecation")
   val MD5 = Hashing.md5()
 

@@ -1,4 +1,5 @@
 val scala3Version = "3.5.2"
+val Http4sVersion = "0.23.30"
 
 enablePlugins(JavaAppPackaging)
 
@@ -53,6 +54,10 @@ lazy val root = project
       "org.scalikejdbc"                 %% "scalikejdbc"                % "4.3.+",
       "org.tpolecat"                    %% "skunk-core"                 % "0.6.4",
       "org.typelevel"                   %% "cats-effect"                % "3.5.7",
+      "org.http4s"                      %% "http4s-ember-server"        % Http4sVersion,
+      "org.http4s"                      %% "http4s-ember-client"        % Http4sVersion,
+      "org.http4s"                      %% "http4s-dsl"                 % Http4sVersion,
+      "org.http4s"                      %% "http4s-jawn"                % Http4sVersion,
 
       "org.scalameta"                   %% "munit"                      % "1.1.0" % Test,
       "org.typelevel"                   %% "munit-cats-effect"          % "2.0.0" % Test,

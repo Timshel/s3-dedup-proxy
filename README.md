@@ -37,6 +37,22 @@ drwxr-xr-x 2 20480 Feb 25 18:37 lib
 
 Log backend use slf4j simple logger and can be configured using parameters such as `-Dorg.slf4j.simpleLogger.log.timshel.s3dedupproxy=info`.
 
+### Redirection API
+
+In addition to the object store proxy an http server is started (default port `23279`).
+It allows to obtain the backing store resource url with an client resource, Ex:
+
+```bash
+> curl -v http://127.0.0.1:23279/proxy/tenant1/s3dedup/main/resources/application.conf
+...
+>
+< HTTP/1.1 308 Permanent Redirect
+...
+<
+* Connection #0 to host 127.0.0.1 left intact
+http://127.0.0.1/mastodon/blobs/f/b83/fb83d051f2a1da53b43edee3986c21ca7c31f78bb956eb5b6bfad92ea741def9051d09e1d287aca74d22bd03db73fd49b350a4d5e1df8fe494dd01904996ec04
+```
+
 ## Docker demo
 
 The `--build` ensure that the image is up to date (In case of `Could not connect to 127.0.0.1:3306` error just retry, the DB was just not completely up).
