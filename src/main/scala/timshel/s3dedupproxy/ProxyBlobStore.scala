@@ -2,7 +2,7 @@ package timshel.s3dedupproxy
 
 import cats.effect._
 import cats.effect.std.Dispatcher
-import com.google.common.collect.Lists;
+import com.google.common.collect.{ImmutableList, Lists, Maps};
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import java.io.File;
@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
+import org.gaul.s3proxy.S3Proxy;
 import org.jclouds.blobstore.BlobStore;
 import org.jclouds.blobstore.BlobStoreContext;
 import org.jclouds.blobstore.domain.Blob;
@@ -29,6 +30,7 @@ import org.jclouds.blobstore.options.GetOptions;
 import org.jclouds.blobstore.options.ListContainerOptions;
 import org.jclouds.blobstore.options.PutOptions;
 import org.jclouds.blobstore.util.ForwardingBlobStore;
+import org.jclouds.ContextBuilder;
 import org.jclouds.domain.internal.LocationImpl;
 import org.jclouds.domain.Location;
 import org.jclouds.domain.LocationScope;
@@ -39,12 +41,88 @@ import scala.util.Using
 import timshel.s3dedupproxy.Database;
 
 object ProxyBlobStore {
+  val log = com.typesafe.scalalogging.Logger(classOf[Application])
+
   @scala.annotation.nowarn("cat=deprecation")
   val MD5 = Hashing.md5()
 
   def hashToKey(hc: HashCode): String = {
     val hash = hc.toString();
     "blobs/" + hash.substring(0, 1) + "/" + hash.substring(1, 4) + "/" + hash;
+  }
+
+  def bufferStorePath(identity: String): File = {
+    new File(s"/tmp/s3dedupproxy-buffer/$identity/")
+  }
+
+  private def createBufferStore(identity: String): BlobStore = {
+    val blobPath = bufferStorePath(identity)
+
+    val overrides = new java.util.Properties()
+    overrides.setProperty(org.jclouds.filesystem.reference.FilesystemConstants.PROPERTY_BASEDIR, blobPath.getPath())
+
+    org.jclouds.ContextBuilder
+      .newBuilder("filesystem-nio2")
+      .credentials("identity", "credential")
+      .modules(ImmutableList.of(new org.jclouds.logging.slf4j.config.SLF4JLoggingModule()))
+      .overrides(overrides)
+      .build(classOf[org.jclouds.blobstore.BlobStoreContext])
+      .getBlobStore()
+  }
+
+  private def createBlobStore(conf: BackendConfig): BlobStore = {
+    val overrides = new java.util.Properties()
+    overrides.setProperty(org.jclouds.s3.reference.S3Constants.PROPERTY_S3_VIRTUAL_HOST_BUCKETS, conf.virtualHost.toString());
+
+    ContextBuilder
+      .newBuilder(if ("s3".equals(conf.protocol)) "aws-s3" else conf.protocol)
+      .credentials(conf.accessKeyId, conf.secretAccessKey)
+      .modules(ImmutableList.of(new org.jclouds.logging.slf4j.config.SLF4JLoggingModule()))
+      .endpoint(conf.endpoint)
+      .overrides(overrides)
+      .build(classOf[org.jclouds.blobstore.BlobStoreContext])
+      .getBlobStore()
+  }
+
+  /** S3Proxy will throw if it sees an X-Amz header it doesn't recognize
+    */
+  def createProxy(config: GlobalConfig, db: Database, dispatcher: Dispatcher[IO]): Resource[IO, S3Proxy] = {
+    val s3Proxy = S3Proxy
+      .builder()
+      .awsAuthentication(org.gaul.s3proxy.AuthenticationType.AWS_V2_OR_V4, "DUMMY", "DUMMY")
+      .endpoint(config.proxy.uri)
+      .jettyMaxThreads(24)
+      .v4MaxNonChunkedRequestSize(128L * 1024L * 1024L)
+      .ignoreUnknownHeaders(true)
+      .build()
+
+    val blobStore = createBlobStore(config.backend)
+
+    s3Proxy.setBlobStoreLocator((identity, container, blob) => {
+      val proxyBlobStore =
+        ProxyBlobStore(createBufferStore(identity), blobStore, identity, config.backend.bucket, db, dispatcher)
+
+      config.users.get(identity) match {
+        case Some(secret) => Maps.immutableEntry(secret, proxyBlobStore);
+        case None         => throw new SecurityException("Access denied")
+      }
+    });
+
+    Resource.make {
+      IO {
+        config.users.keys.foreach { identity => bufferStorePath(identity).mkdirs() }
+        log.debug(s"Buffer store path created for users (${config.users.keys})")
+
+        s3Proxy.start()
+        log.info(s"Object proxy running on ${config.proxy.uri}")
+        s3Proxy
+      }
+    }(proxy =>
+      IO {
+        log.info("Objcet proxy is stopping")
+        proxy.stop()
+      }
+    )
   }
 }
 
@@ -56,7 +134,7 @@ class ProxyBlobStore(
     db: Database,
     dispatcher: Dispatcher[IO]
 ) extends ForwardingBlobStore(blobStore) {
-  val log = com.typesafe.scalalogging.Logger(classOf[Application])
+  import ProxyBlobStore.log
 
   def getMapKey(container: String, name: String): IO[Option[String]] = {
     db.getMappingHash(identity, container, name).map { hco =>

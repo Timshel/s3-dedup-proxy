@@ -217,6 +217,40 @@ case class Database(
     }
   }
 
+  def delMetadatasC(count: Int): Command[(List[HashCode])] = {
+    sql"""
+      DELETE FROM file_metadata WHERE hash IN (${hashE.list(count)})
+    """.command
+  }
+
+  def delMetadatas(hashes: List[HashCode]): IO[Int] = {
+    pool.use {
+      _.prepare(delMetadatasC(hashes.size))
+        .flatMap { pc => pc.execute(hashes) }
+        .map {
+          case Completion.Delete(count) => count
+          case _                        => throw new AssertionError("delMetadatas execution should only return Delete")
+        }
+    }
+  }
+
+  val getDanglingQ: Query[Int, HashCode] =
+    sql"""
+      SELECT file_metadata.hash
+        FROM file_metadata
+          LEFT JOIN file_mappings ON file_mappings.hash = file_metadata.hash
+        WHERE file_mappings.uuid IS NULL
+        ORDER BY file_metadata.created ASC
+        LIMIT $int4
+    """
+      .query(hashD)
+
+  def getDangling(limit: Int): IO[List[HashCode]] =
+    pool.use {
+      _.prepare(getDanglingQ)
+        .flatMap { pc => pc.stream(limit, limit).compile.toList }
+    }
+
   def withMaker(mappings: List[Mapping]): (List[Mapping], Option[UUID]) = {
     if (mappings.size == PAGE_SIZE) {
       (mappings, mappings.lastOption.map(_.uuid))
