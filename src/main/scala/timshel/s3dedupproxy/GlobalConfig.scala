@@ -2,13 +2,16 @@ package timshel.s3dedupproxy
 
 import com.comcast.ip4s.{Host, Port}
 import java.net.URI;
+import org.quartz.CronExpression;
 import pureconfig.*
 import pureconfig.generic.semiauto.deriveReader
+import scala.util.Try;
 
 given hostReader: ConfigReader[Host] = ConfigReader.fromStringOpt(Host.fromString)
 given portReader: ConfigReader[Port] = implicitly[ConfigReader[Int]].emap { p =>
   Port.fromInt(p).toRight(pureconfig.error.CannotConvert(p.toString, "Port", "Impossible"))
 }
+given cronReader: ConfigReader[CronExpression] = ConfigReader.fromStringTry { str => Try(org.quartz.CronExpression(str)) }
 
 case class API(
     host: Host,
@@ -17,7 +20,8 @@ case class API(
 
 case class Proxy(
     host: Host,
-    port: Port
+    port: Port,
+    purge: CronExpression
 ) derives ConfigReader {
   val uri = URI.create(s"http://${host}:${port}")
 }

@@ -53,6 +53,20 @@ It allows to obtain the backing store resource url with an client resource, Ex:
 http://127.0.0.1/mastodon/blobs/f/b83/fb83d051f2a1da53b43edee3986c21ca7c31f78bb956eb5b6bfad92ea741def9051d09e1d287aca74d22bd03db73fd49b350a4d5e1df8fe494dd01904996ec04
 ```
 
+### Purge API
+
+When a user delete a file only the database mapping is removed, the file stored in the object store is not removed even if it was the last reference.
+Periodically a purge job is run to remove the dangling files (config `proxy.purge` key).
+
+It's possible to trigger the purge by and HTTP call too:
+
+```bash
+curl --request DELETE http://127.0.0.1:23279/api/purge
+0 deleted
+```
+
+It deletes up to 1000 files (the maximum for a single call of `RemoveObjects`).
+
 ## Docker demo
 
 The `--build` ensure that the image is up to date (In case of `Could not connect to 127.0.0.1:3306` error just retry, the DB was just not completely up).

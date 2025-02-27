@@ -32,7 +32,6 @@ case class Mapping(
 object Database {
   val hashD: Decoder[HashCode] = bytea.map(HashCode.fromBytes(_))
   val hashE: Encoder[HashCode] = bytea.contramap(_.asBytes())
-  val UUID_ZERO                = new UUID(0L, 0L)
   val PAGE_SIZE                = 100
 }
 
@@ -224,14 +223,16 @@ case class Database(
   }
 
   def delMetadatas(hashes: List[HashCode]): IO[Int] = {
-    pool.use {
-      _.prepare(delMetadatasC(hashes.size))
-        .flatMap { pc => pc.execute(hashes) }
-        .map {
-          case Completion.Delete(count) => count
-          case _                        => throw new AssertionError("delMetadatas execution should only return Delete")
-        }
-    }
+    if (hashes.nonEmpty) {
+      pool.use {
+        _.prepare(delMetadatasC(hashes.size))
+          .flatMap { pc => pc.execute(hashes) }
+          .map {
+            case Completion.Delete(count) => count
+            case _                        => throw new AssertionError("delMetadatas execution should only return Delete")
+          }
+      }
+    } else IO.pure(0)
   }
 
   val getDanglingQ: Query[Int, HashCode] =
@@ -251,9 +252,9 @@ case class Database(
         .flatMap { pc => pc.stream(limit, limit).compile.toList }
     }
 
-  def withMaker(mappings: List[Mapping]): (List[Mapping], Option[UUID]) = {
-    if (mappings.size == PAGE_SIZE) {
-      (mappings, mappings.lastOption.map(_.uuid))
+  def withMaker(maxResults: Int)(mappings: List[Mapping]): (List[Mapping], Option[String]) = {
+    if (mappings.size == maxResults) {
+      (mappings, mappings.lastOption.map(_.key))
     } else (mappings, None)
   }
 
@@ -274,7 +275,7 @@ case class Database(
       }
   }
 
-  val getMappingsQ: Query[(String, String, String, UUID, Int), Mapping] =
+  val getMappingsQ: Query[(String, String, String, String, Int), Mapping] =
     sql"""
       SELECT
           file_mappings.uuid, file_mappings.bucket, file_mappings.file_key,
@@ -285,7 +286,7 @@ case class Database(
         WHERE user_name = $text
           AND file_mappings.bucket = $text
           AND starts_with(file_mappings.file_key, $text)
-          AND file_mappings.uuid > $uuid
+          AND file_mappings.file_key > $text
         ORDER BY file_mappings.file_key ASC
         LIMIT $int4
     """
@@ -296,17 +297,19 @@ case class Database(
       user_name: String,
       bucket: String,
       prefix: Option[String] = None,
-      marker: Option[UUID] = None
-  ): IO[(List[Mapping], Option[UUID])] = {
-    val after = marker.getOrElse(UUID_ZERO)
+      marker: Option[String] = None,
+      maxResults: Option[Int] = None,
+  ): IO[(List[Mapping], Option[String])] = {
+    val after = marker.getOrElse("")
     val pre   = prefix.getOrElse("")
+    val limit = maxResults.getOrElse(PAGE_SIZE)
 
     pool
       .use {
         _.prepare(getMappingsQ)
-          .flatMap { pc => pc.stream((user_name, bucket, pre, UUID_ZERO, PAGE_SIZE), PAGE_SIZE).compile.toList }
+          .flatMap { pc => pc.stream((user_name, bucket, pre, after, limit), limit).compile.toList }
       }
-      .map(withMaker)
+      .map(withMaker(limit))
   }
 
 }

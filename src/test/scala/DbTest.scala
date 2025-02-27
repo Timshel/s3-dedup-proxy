@@ -8,9 +8,7 @@ class PgIntegrationTests extends CatsEffectSuite {
 
   val app = ResourceSuiteLocalFixture(
     "application",
-    Application.default().evalMap { a =>
-      a.migrate().map { mr => a }
-    }
+    Application.default()
   )
 
   override def munitFixtures = List(app)
@@ -27,7 +25,10 @@ class PgIntegrationTests extends CatsEffectSuite {
         _ <- a.database.putMetadata(hashCode, hashCode, 10L, "A", "CT")
         _ <- a.database.putMetadata(hashCode, hashCode, 12L, "B", "CT")
         _ <- assertIO(a.database.getMetadata(hashCode), Some(Metadata(10L, "B", "CT")))
+        _ <- assertIO(a.database.getDangling(1000), List(hashCode))
         _ <- assertIO(a.database.delMetadata(hashCode), 1)
+        _ <- a.database.putMetadata(hashCode, hashCode, 10L, "A", "CT")
+        _ <- assertIO(a.database.delMetadatas(List(hashCode)), 1)
       } yield ()
     }
   }

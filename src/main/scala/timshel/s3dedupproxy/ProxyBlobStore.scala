@@ -520,7 +520,7 @@ class ProxyBlobStore(
     bm
   }
 
-  def mapMetadatas: PartialFunction[(List[Mapping], Option[java.util.UUID]), PageSet[BlobMetadata]] = {
+  def mapMetadatas: PartialFunction[(List[Mapping], Option[String]), PageSet[BlobMetadata]] = {
     case (mappings, marker) =>
       import scala.jdk.CollectionConverters._
       val iter: java.lang.Iterable[BlobMetadata] = mappings.map(mapMetadata).asJava
@@ -535,7 +535,7 @@ class ProxyBlobStore(
 
   override def list(container: String, options: ListContainerOptions): PageSet[BlobMetadata] = {
     log.debug(s"list($container, $options)")
-    val p = db.getMappings(identity, container, Option(options.getPrefix)).map(mapMetadatas)
+    val p = db.getMappings(identity, container, Option(options.getPrefix), Option(options.getMarker), Option(options.getMaxResults)).map(mapMetadatas)
     dispatcher.unsafeRunSync(p)
   }
 

@@ -28,3 +28,14 @@ case class RedirectionController(
 object RedirectionController {
   val log = com.typesafe.scalalogging.Logger(classOf[RedirectionController])
 }
+
+
+case class ApiController(
+  cleanup: Cleanup
+) {
+  import RedirectionController._
+
+  val routes = org.http4s.HttpRoutes.of[IO] { case _ @DELETE -> Root / "purge" =>
+    cleanup.purge().flatMap { count => Ok(s"$count deleted") }
+  }
+}

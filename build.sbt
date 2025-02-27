@@ -43,8 +43,10 @@ lazy val root = project
       "com.squareup.okhttp3"             % "okhttp-brotli"              % "4.11.0",
 
       // Java
+      "io.minio"                         % "minio"                      % "8.5.17",
       "org.flywaydb"                     % "flyway-database-postgresql" % "11.0.1",
       "org.postgresql"                   % "postgresql"                 % "42.7.4",
+      "org.quartz-scheduler"             % "quartz"                     % "2.5.0",
       "org.slf4j"                        % "slf4j-api"                  % "2.0.16",
       "org.slf4j"                        % "slf4j-simple"               % "2.0.16",
 

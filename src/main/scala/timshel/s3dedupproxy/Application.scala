@@ -13,7 +13,8 @@ case class Application(
     config: GlobalConfig,
     database: Database,
     proxy: org.gaul.s3proxy.S3Proxy,
-    http: org.http4s.server.Server
+    http: org.http4s.server.Server,
+    cleanup: Cleanup
 )
 
 object Application extends IOApp {
@@ -49,9 +50,12 @@ object Application extends IOApp {
       )
       database = Database(pool)(runtime)
       dispatcher <- Dispatcher.parallel[IO]
+      proxy   <- ProxyBlobStore.createProxy(config, database, dispatcher)
+      cleanup <- Cleanup.scheduled(config, database, dispatcher)
       httpApp = org.http4s.server
         .Router(
-          "/proxy/" -> RedirectionController(config.backend, database).routes
+          "/proxy/" -> RedirectionController(config.backend, database).routes,
+          "/api/" -> ApiController(cleanup).routes
         )
         .orNotFound
       http <- EmberServerBuilder
@@ -60,8 +64,7 @@ object Application extends IOApp {
         .withPort(config.api.port)
         .withHttpApp(Logger.httpApp(true, true)(httpApp))
         .build
-      proxy <- ProxyBlobStore.createProxy(config, database, dispatcher)
-    } yield Application(config, database, proxy, http))
+    } yield Application(config, database, proxy, http, cleanup))
       .preAllocate {
         migration(config.db)
       }
