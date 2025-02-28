@@ -2,9 +2,11 @@ package timshel.s3dedupproxy
 
 import cats.effect._
 import cats.effect.std.Dispatcher
+import java.util.concurrent.Executors
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.middleware.Logger
 import org.postgresql.ds.PGSimpleDataSource
+import scala.concurrent.ExecutionContext
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
@@ -28,7 +30,7 @@ object Application extends IOApp {
   }
 
   def default(): Resource[IO, Application] = {
-    IO {
+    IO.blocking {
       pureconfig.ConfigSource.default.load[GlobalConfig] match {
         case Left(e)       => throw new RuntimeException(e.prettyPrint());
         case Right(config) => config
@@ -73,8 +75,8 @@ object Application extends IOApp {
   def migration(config: DBConfig): IO[Unit] = {
     (for {
       ds  <- simpleDataSource(config)
-      fly <- IO(org.flywaydb.core.Flyway.configure().dataSource(ds).load())
-      mr  <- IO(fly.migrate())
+      fly <- IO.blocking(org.flywaydb.core.Flyway.configure().dataSource(ds).load())
+      mr  <- IO.blocking(fly.migrate())
     } yield mr)
       .flatMap {
         case mr if mr.success => IO.pure(())
@@ -82,7 +84,7 @@ object Application extends IOApp {
       }
   }
 
-  def simpleDataSource(config: DBConfig): IO[PGSimpleDataSource] = IO {
+  def simpleDataSource(config: DBConfig): IO[PGSimpleDataSource] = IO.blocking {
     val ds = org.postgresql.ds.PGSimpleDataSource()
     ds.setServerNames(Array(config.host.toString))
     ds.setPortNumbers(Array(config.port.value))

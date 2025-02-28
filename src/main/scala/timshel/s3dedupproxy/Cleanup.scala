@@ -51,7 +51,7 @@ object Cleanup {
       config: GlobalConfig,
       db: Database,
       dispatcher: Dispatcher[IO]
-  ): Resource[IO, Cleanup] = Resource.make(IO {
+  ): Resource[IO, Cleanup] = Resource.make(IO.blocking {
     import scala.jdk.CollectionConverters._
 
     val client  = ObjectStoreClient(config.backend)
@@ -71,7 +71,7 @@ object Cleanup {
 
     cleanup
   })(cleanup =>
-    IO {
+    IO.blocking {
       log.info("Stopping cleanup scheduler")
       cleanup.sched.shutdown(true);
     }

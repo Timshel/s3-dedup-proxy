@@ -109,7 +109,7 @@ object ProxyBlobStore {
     });
 
     Resource.make {
-      IO {
+      IO.blocking {
         config.users.keys.foreach { identity => bufferStorePath(identity).mkdirs() }
         log.debug(s"Buffer store path created for users (${config.users.keys})")
 
@@ -118,7 +118,7 @@ object ProxyBlobStore {
         s3Proxy
       }
     }(proxy =>
-      IO {
+      IO.blocking {
         log.info("Objcet proxy is stopping")
         proxy.stop()
       }
@@ -171,7 +171,7 @@ class ProxyBlobStore(
   override def downloadBlob(container: String, name: String, destination: File): Unit = {
     log.debug(s"downloadBlob($container, $name, $destination)")
     val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO(delegate().downloadBlob(bucket, key, destination))
+      case Some(key) => IO.blocking(delegate().downloadBlob(bucket, key, destination))
       case None      => IO.pure[Unit](())
     }
     dispatcher.unsafeRunSync(p)
@@ -180,7 +180,7 @@ class ProxyBlobStore(
   override def downloadBlob(container: String, name: String, destination: File, executor: ExecutorService): Unit = {
     log.debug(s"downloadBlob($container, $name, $destination, ES)")
     val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO(delegate().downloadBlob(bucket, key, destination, executor))
+      case Some(key) => IO.blocking(delegate().downloadBlob(bucket, key, destination, executor))
       case None      => IO.pure[Unit](())
     }
     dispatcher.unsafeRunSync(p)
@@ -189,7 +189,7 @@ class ProxyBlobStore(
   override def streamBlob(container: String, name: String): InputStream = {
     log.debug(s"streamBlob($container, $name)")
     val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO(delegate().streamBlob(bucket, key))
+      case Some(key) => IO.blocking(delegate().streamBlob(bucket, key))
       case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
@@ -198,7 +198,7 @@ class ProxyBlobStore(
   override def streamBlob(container: String, name: String, executor: ExecutorService): InputStream = {
     log.debug(s"streamBlob($container, $name, ES)")
     val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO(delegate().streamBlob(bucket, key, executor))
+      case Some(key) => IO.blocking(delegate().streamBlob(bucket, key, executor))
       case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
@@ -223,7 +223,7 @@ class ProxyBlobStore(
   override def blobMetadata(container: String, name: String): BlobMetadata = {
     log.debug(s"blobMetadata($container, $name)")
     val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO(delegate().blobMetadata(bucket, key))
+      case Some(key) => IO.blocking(delegate().blobMetadata(bucket, key))
       case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
@@ -249,7 +249,7 @@ class ProxyBlobStore(
     delegate().getMaximumMultipartPartSize();
   }
 
-  private def ensureContainerExists(container: String): IO[Unit] = IO {
+  private def ensureContainerExists(container: String): IO[Unit] = IO.blocking {
     if (!bufferStore.containerExists(container)) {
       bufferStore.createContainerInLocation(null, container)
     }
@@ -262,7 +262,7 @@ class ProxyBlobStore(
 
     val p = (for {
       _ <- ensureContainerExists(container)
-      (size, hash, md5) <- IO {
+      (size, hash, md5) <- IO.blocking {
         val is      = blob.getPayload().openStream();
         val counter = new com.google.common.io.CountingInputStream(is);
         val his     = new com.google.common.hash.HashingInputStream(Hashing.sha512(), counter)
@@ -274,7 +274,7 @@ class ProxyBlobStore(
       eTag <- processBufferDedup(container, name, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
-        IO {
+        IO.blocking {
           log.error(s"Failed to putBlob($container, $blob): $e")
         }
       }
@@ -295,7 +295,7 @@ class ProxyBlobStore(
         case Some(metadata) => IO.pure(metadata.eTag)
         case None =>
           for {
-            eTag <- IO {
+            eTag <- IO.blocking {
               val blob     = bufferStore.getBlob(container, name)
               val metadata = blob.getMetadata()
               metadata.setContainer(bucket)
@@ -308,7 +308,7 @@ class ProxyBlobStore(
       .flatMap { eTag =>
         for {
           _ <- db.putMapping(identity, container, name, hash)
-          _ <- IO(bufferStore.removeBlob(container, name))
+          _ <- IO.blocking(bufferStore.removeBlob(container, name))
         } yield eTag
       }
   }
@@ -342,7 +342,7 @@ class ProxyBlobStore(
 
     val p = for {
       _ <- ensureContainerExists(container)
-      mu <- IO(
+      mu <- IO.blocking(
         bufferStore.initiateMultipartUpload(container, blobMetadata, new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ))
       )
     } yield mu
@@ -355,7 +355,7 @@ class ProxyBlobStore(
     bufferStore.abortMultipartUpload(mpu);
   }
 
-  def bufferStoreBlobHash(container: String, name: String): IO[(Long, HashCode, HashCode)] = IO {
+  def bufferStoreBlobHash(container: String, name: String): IO[(Long, HashCode, HashCode)] = IO.blocking {
     Using(bufferStore.getBlob(container, name).getPayload().openStream()) { stream =>
       val counter = new com.google.common.io.CountingOutputStream(java.io.OutputStream.nullOutputStream());
       val hos     = new com.google.common.hash.HashingOutputStream(Hashing.sha512(), counter);
@@ -374,13 +374,13 @@ class ProxyBlobStore(
     val contenType = mpu.blobMetadata().getContentMetadata().getContentType()
 
     val p = (for {
-      completed <- IO(bufferStore.completeMultipartUpload(mpu, parts))
+      completed <- IO.blocking(bufferStore.completeMultipartUpload(mpu, parts))
       _ = log.debug(s"Completed upload to bufferStore: $completed")
       (size, hash, md5) <- bufferStoreBlobHash(container, name)
       eTag              <- processBufferDedup(container, name, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
-        IO {
+        IO.blocking {
           log.error(s"Failed to completeMultipartUpload(${mpu.id()}): $e")
         }
       }

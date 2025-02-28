@@ -16,7 +16,7 @@ case class ObjectStoreClient(
     .credentials(config.accessKeyId, config.secretAccessKey)
     .build()
 
-  def deleteKeys(hashes: List[HashCode]): IO[Unit] = IO {
+  def deleteKeys(hashes: List[HashCode]): IO[Unit] = IO.blocking {
     if (hashes.nonEmpty) {
       val objects = new java.util.LinkedList[DeleteObject]();
 
