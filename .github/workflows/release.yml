@@ -1,0 +1,85 @@
+name: build-and-release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    name: Build and create a release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Java (temurin@8)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: sbt
+
+      - name: Set TAG variables
+        id: tags_variables
+        run: |
+          set -x
+
+          TAG_CURRENT=$(git describe --abbrev=0 --tags ${{ github.ref }})
+          TAG_PREVIOUS=$(git describe --abbrev=0 --tags $TAG_CURRENT^)
+
+          echo "TAG_CURRENT=$TAG_CURRENT" >> "$GITHUB_ENV"
+          echo "TAG_PREVIOUS=$TAG_PREVIOUS" >> "$GITHUB_ENV"
+
+          echo "CHANGELOG_MESSAGE<<EOF" >> $GITHUB_ENV
+          sed -nzE "s/^.*## $TAG_CURRENT([^#]*).*$/\1/p" CHANGELOG.md  | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba' -e '}' >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          set -x
+          git submodule init
+          git submodule update
+
+          sbt stage
+
+          cd target/universal/stage
+          tar -czvf ../../../"s3-dedup-proxy.tar.gz" bin lib --owner=0 --group=0
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG_CURRENT }}
+          release_name: ${{ env.TAG_CURRENT }}
+          body: |
+            ${{ env.CHANGELOG_MESSAGE }}
+
+            Full changelog: [${{ env.TAG_PREVIOUS }}...${{ env.TAG_CURRENT }}](https://github.com/timshel/s3-dedup-proxy/compare/${{ env.TAG_PREVIOUS }}...${{ env.TAG_CURRENT }})
+
+            :robot: Built by [release.yml](.github/workflows/release.yml) :robot:
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-button
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./s3-dedup-proxy.tar.gz
+          asset_name: s3-dedup-proxy.tar.gz
+          asset_content_type: application/gzip
