@@ -30,7 +30,7 @@ case class Cleanup(
     for {
       hashes <- db.getDangling(1000)
       _      <- client.deleteKeys(hashes)
-      count  <- db.delMetadatas(hashes)
+      count  <- db.delDanglingMetadatas(hashes)
       _ = log.debug(s"Purged $count files")
     } yield count
   }

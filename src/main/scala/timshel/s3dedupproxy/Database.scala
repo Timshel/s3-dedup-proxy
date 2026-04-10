@@ -235,6 +235,31 @@ case class Database(
     } else IO.pure(0)
   }
 
+  /** Atomically deletes metadata rows only if they still have no mappings.
+    * Prevents TOCTOU race where a concurrent upload creates a mapping
+    * between getDangling and the delete.
+    */
+  def delDanglingMetadatasC(count: Int): Command[(List[HashCode])] = {
+    sql"""
+      DELETE FROM file_metadata
+        WHERE hash IN (${hashE.list(count)})
+          AND NOT EXISTS (SELECT 1 FROM file_mappings WHERE file_mappings.hash = file_metadata.hash)
+    """.command
+  }
+
+  def delDanglingMetadatas(hashes: List[HashCode]): IO[Int] = {
+    if (hashes.nonEmpty) {
+      pool.use {
+        _.prepare(delDanglingMetadatasC(hashes.size))
+          .flatMap { pc => pc.execute(hashes) }
+          .map {
+            case Completion.Delete(count) => count
+            case _                        => throw new AssertionError("delDanglingMetadatas execution should only return Delete")
+          }
+      }
+    } else IO.pure(0)
+  }
+
   val getDanglingQ: Query[Int, HashCode] =
     sql"""
       SELECT file_metadata.hash
