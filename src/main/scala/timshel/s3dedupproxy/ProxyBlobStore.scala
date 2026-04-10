@@ -148,6 +148,19 @@ class ProxyBlobStore(
     }
   }
 
+  def getMapHash(container: String, name: String): IO[Option[(String, HashCode)]] = {
+    db.getMappingHash(identity, container, name).map { hco =>
+      hco.map(h => (ProxyBlobStore.hashToKey(h), h))
+    }
+  }
+
+  private def restoreBlobMetadata(bm: MutableBlobMetadata, container: String, name: String, meta: Metadata): Unit = {
+    bm.setContainer(container)
+    bm.setName(name)
+    bm.getContentMetadata().setContentType(meta.contentType)
+    bm.getContentMetadata().setContentLength(meta.size)
+  }
+
   override def getContext(): BlobStoreContext = {
     return delegate().getContext();
   }
@@ -158,18 +171,36 @@ class ProxyBlobStore(
 
   override def getBlob(container: String, name: String): Blob = {
     log.debug(s"getBlob($container, $name)")
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().getBlob(bucket, key)
-      case None      => null
+    val p = getMapHash(container, name).flatMap {
+      case Some((key, hash)) =>
+        for {
+          blob <- IO.blocking(delegate().getBlob(bucket, key))
+          metaOpt <- db.getMetadata(hash)
+        } yield {
+          if (blob != null) {
+            metaOpt.foreach(m => restoreBlobMetadata(blob.getMetadata().asInstanceOf[MutableBlobMetadata], container, name, m))
+          }
+          blob
+        }
+      case None => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def getBlob(container: String, name: String, getOptions: GetOptions): Blob = {
     log.debug(s"getBlob($container, $name, $getOptions)")
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().getBlob(bucket, key, getOptions)
-      case None      => null
+    val p = getMapHash(container, name).flatMap {
+      case Some((key, hash)) =>
+        for {
+          blob <- IO.blocking(delegate().getBlob(bucket, key, getOptions))
+          metaOpt <- db.getMetadata(hash)
+        } yield {
+          if (blob != null) {
+            metaOpt.foreach(m => restoreBlobMetadata(blob.getMetadata().asInstanceOf[MutableBlobMetadata], container, name, m))
+          }
+          blob
+        }
+      case None => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
@@ -228,9 +259,18 @@ class ProxyBlobStore(
 
   override def blobMetadata(container: String, name: String): BlobMetadata = {
     log.debug(s"blobMetadata($container, $name)")
-    val p = getMapKey(container, name).flatMap {
-      case Some(key) => IO.blocking(delegate().blobMetadata(bucket, key))
-      case None      => IO.pure(null)
+    val p = getMapHash(container, name).flatMap {
+      case Some((key, hash)) =>
+        for {
+          bm <- IO.blocking(delegate().blobMetadata(bucket, key))
+          metaOpt <- db.getMetadata(hash)
+        } yield {
+          if (bm != null) {
+            metaOpt.foreach(m => restoreBlobMetadata(bm.asInstanceOf[MutableBlobMetadata], container, name, m))
+          }
+          bm
+        }
+      case None => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
