@@ -270,13 +270,19 @@ class ProxyBlobStore(
       _ <- ensureContainerExists(container)
       (size, hash, md5) <- IO.blocking {
         val is      = blob.getPayload().openStream();
-        val counter = new com.google.common.io.CountingInputStream(is);
-        val his     = new com.google.common.hash.HashingInputStream(Hashing.sha512(), counter)
-        val md5     = new com.google.common.hash.HashingInputStream(ProxyBlobStore.MD5, his)
-        blob.setPayload(md5)
-        blob.getMetadata().getContentMetadata().setContentType(contenType)
-        bufferStore.putBlob(container, blob)
-        (counter.getCount(), his.hash(), md5.hash())
+        try {
+          val counter = new com.google.common.io.CountingInputStream(is);
+          val his     = new com.google.common.hash.HashingInputStream(Hashing.sha512(), counter)
+          val md5     = new com.google.common.hash.HashingInputStream(ProxyBlobStore.MD5, his)
+          blob.setPayload(md5)
+          blob.getMetadata().getContentMetadata().setContentType(contenType)
+          bufferStore.putBlob(container, blob)
+          (counter.getCount(), his.hash(), md5.hash())
+        } catch {
+          case e: Throwable =>
+            is.close()
+            throw e
+        }
       }
       eTag <- processBufferDedup(container, name, hash, md5, size, contenType)
     } yield eTag)
