@@ -40,6 +40,23 @@ case class Database(
 )(implicit runtime: IORuntime) {
   import Database.*
 
+  private val advisoryLockQ: Query[Long, Void] =
+    sql"SELECT pg_advisory_xact_lock($int8)".query(skunk.Void.codec)
+
+  /** Acquires a transaction-scoped advisory lock keyed on the hash,
+    * executes the body, then commits. The lock auto-releases when
+    * the transaction ends. Uses the first 8 bytes of the hash as
+    * the lock key for good distribution.
+    */
+  def withAdvisoryLock[A](hash: HashCode)(body: IO[A]): IO[A] = {
+    val lockKey = java.nio.ByteBuffer.wrap(hash.asBytes().take(8)).getLong()
+    pool.use { session =>
+      session.transaction.use { _ =>
+        session.prepare(advisoryLockQ).flatMap(_.unique(lockKey)) >> body
+      }
+    }
+  }
+
   val mappingHashQ: Query[String *: String *: String *: EmptyTuple, HashCode] =
     sql"""
       SELECT hash FROM file_mappings
