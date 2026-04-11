@@ -174,17 +174,17 @@ case class Database(
         .flatMap { ps => ps.unique(user_name, bucket) }
     }
 
-  val putMetadataC: Command[(HashCode, HashCode, Long, String, String, String, String)] =
+  val putMetadataC: Command[(HashCode, HashCode, Long, String, String, HashCode, Long, String, String)] =
     sql"""
       INSERT INTO file_metadata (hash, md5, size, etag, content_type) VALUES ($hashE, $hashE, $int8, $text, $text)
-        ON CONFLICT (hash) DO UPDATE SET etag= $text, content_type = $text, updated = now();
+        ON CONFLICT (hash) DO UPDATE SET md5 = $hashE, size = $int8, etag = $text, content_type = $text, updated = now();
     """.command
 
   def putMetadata(hash: HashCode, md5: HashCode, size: Long, eTag: String, contentType: String): IO[Completion] = {
     pool.use {
       _.prepare(putMetadataC)
         .flatMap { pc =>
-          pc.execute(hash, md5, size, eTag, contentType, eTag, contentType)
+          pc.execute(hash, md5, size, eTag, contentType, md5, size, eTag, contentType)
         }
     }
   }
