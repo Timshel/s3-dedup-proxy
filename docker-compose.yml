@@ -16,21 +16,19 @@ services:
 
   Postgres:
     container_name: s3dedupproxy_postgres
-    image: postgres:18
+    image: postgres:17.2
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d s3proxy -U s3proxy"]
+      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB} -U ${POSTGRES_USER}"]
       start_period: 20s
       interval: 30s
       timeout: 5s
       retries: 3
     ports:
       - "5432:5432"
-    environment:
-      - POSTGRES_USER=s3proxy
-      - POSTGRES_PASSWORD=s3proxy
-      - POSTGRES_DB=s3proxy
+    env_file:
+      - .env.docker
     volumes:
-      - ./postgres_18_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   S3Proxy:
@@ -38,8 +36,12 @@ services:
     image: andrewgaul/s3proxy
     ports:
       - "8080:80"
-    environment:
-      - S3PROXY_AUTHORIZATION=none
+    env_file:
+      - .env.docker
     volumes:
-      - ./s3proxy_data:/data
+      - s3proxy_data:/data
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  s3proxy_data:
