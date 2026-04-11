@@ -7,4 +7,3 @@
 !src
 !.gitmodules
 !build.sbt
-!docker.application.conf

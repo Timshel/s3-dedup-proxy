@@ -10,6 +10,7 @@ import scala.concurrent.ExecutionContext
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
+import java.nio.file.Path
 
 case class Application(
     config: GlobalConfig,
@@ -53,8 +54,16 @@ object Application extends IOApp {
       )
       database = Database(pool)(runtime)
       dispatcher <- Dispatcher.parallel[IO]
-      proxy      <- ProxyBlobStore.createProxy(config, database, dispatcher)
-      cleanup    <- Cleanup.scheduled(config, database, dispatcher)
+      userRegistry <- config.usersFile match {
+        case Some(path) => UserRegistry.fromFile(Path.of(path))
+        case None =>
+          // Fallback: use static users from config (backward compatible)
+          Resource.pure[IO, UserRegistry](
+            new UserRegistry(new java.util.concurrent.atomic.AtomicReference(config.users))
+          )
+      }
+      proxy   <- ProxyBlobStore.createProxy(config, database, dispatcher, userRegistry)
+      cleanup <- Cleanup.scheduled(config, database, dispatcher)
       httpApp = org.http4s.server
         .Router(
           "/proxy/" -> RedirectionController(config.backend, database).routes,

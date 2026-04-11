@@ -1,0 +1,12 @@
+# S3 Dedup Proxy - User Configuration
+#
+# Format: identity: "secret-key"
+# This file is monitored for changes — add or remove users without restarting.
+#
+# To use this file, set in your application.conf:
+#   users-file: "users.conf"
+#
+{
+    tenant1: "ff54fae017ebe20356223ea016d1e2e867b7f73aaba775fe48ed65d1f1fecb87"
+    tenant2: "25ca6d3f04906bfc05a3f2c7ce6b5569ec841ee0ef241a886f34687bbafee7cc"
+}
