@@ -8,7 +8,8 @@ import org.http4s.headers.Location
 
 case class RedirectionController(
     config: BackendConfig,
-    db: Database
+    db: Database,
+    validUsers: Set[String]
 ) {
   import RedirectionController._
 
@@ -17,11 +18,15 @@ case class RedirectionController(
   }
 
   val routes = org.http4s.HttpRoutes.of[IO] { case _ @GET -> StringVar(identity) /: StringVar(bucket) /: key =>
-    db.getMappingHash(identity, bucket, key.toString).flatMap {
-      case None => IO.pure(Response[IO](Status.NotFound))
-      case Some(hash) =>
-        val path = ProxyBlobStore.hashToKey(hash)
-        PermanentRedirect(Location(config.publicHost.addSegment(path)))
+    if (!validUsers.contains(identity)) {
+      IO.pure(Response[IO](Status.Forbidden))
+    } else {
+      db.getMappingHash(identity, bucket, key.toString).flatMap {
+        case None => IO.pure(Response[IO](Status.NotFound))
+        case Some(hash) =>
+          val path = ProxyBlobStore.hashToKey(hash)
+          PermanentRedirect(Location(config.publicHost.addSegment(path)))
+      }
     }
   }
 }
