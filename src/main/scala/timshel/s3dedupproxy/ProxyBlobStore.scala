@@ -158,18 +158,18 @@ class ProxyBlobStore(
 
   override def getBlob(container: String, name: String): Blob = {
     log.debug(s"getBlob($container, $name)")
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().getBlob(bucket, key)
-      case None      => null
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO.blocking(delegate().getBlob(bucket, key))
+      case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
 
   override def getBlob(container: String, name: String, getOptions: GetOptions): Blob = {
     log.debug(s"getBlob($container, $name, $getOptions)")
-    val p = getMapKey(container, name).map {
-      case Some(key) => delegate().getBlob(bucket, key, getOptions)
-      case None      => null
+    val p = getMapKey(container, name).flatMap {
+      case Some(key) => IO.blocking(delegate().getBlob(bucket, key, getOptions))
+      case None      => IO.pure(null)
     }
     dispatcher.unsafeRunSync(p)
   }
