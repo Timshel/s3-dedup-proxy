@@ -54,5 +54,6 @@ case class GlobalConfig(
     backend: BackendConfig,
     backupBackend: Option[BackendConfig] = None,
     db: DBConfig,
-    users: Map[String, String]
+    users: Map[String, String] = Map.empty,
+    usersFile: Option[String] = None
 ) derives ConfigReader

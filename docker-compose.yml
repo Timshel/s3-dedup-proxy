@@ -6,6 +6,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:
+      - ./docker.users.conf:/s3-dedup-proxy/users.conf
+      - ./docker.application.conf:/s3-dedup-proxy/application.conf
     depends_on:
       - Postgres
       - S3Proxy
