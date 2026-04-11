@@ -1,7 +1,6 @@
 services:
   S3DedupProxy:
     container_name: s3dedupproxy_proxy
-    image: s3dedupproxy_poolmgr
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,6 +12,7 @@ services:
         condition: service_healthy
       S3Proxy:
         condition: service_started
+    restart: unless-stopped
 
   Postgres:
     container_name: s3dedupproxy_postgres
@@ -21,17 +21,25 @@ services:
       test: ["CMD-SHELL", "pg_isready -d s3proxy -U s3proxy"]
       start_period: 20s
       interval: 30s
+      timeout: 5s
+      retries: 3
     ports:
       - "5432:5432"
     environment:
       - POSTGRES_USER=s3proxy
       - POSTGRES_PASSWORD=s3proxy
       - POSTGRES_DB=s3proxy
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   S3Proxy:
     container_name: s3dedupproxy_s3proxy
     image: andrewgaul/s3proxy
     ports:
-      - "80:80"
+      - "8080:80"
     environment:
       - S3PROXY_AUTHORIZATION=none
+    volumes:
+      - ./s3proxy_data:/data
+    restart: unless-stopped
