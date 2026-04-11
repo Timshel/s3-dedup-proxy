@@ -297,32 +297,33 @@ class ProxyBlobStore(
       size: Long,
       contenType: String
   ): IO[String] = {
-    db.getMetadata(hash)
-      .flatMap {
-        case Some(metadata) => IO.pure(metadata.eTag)
-        case None =>
-          for {
-            eTag <- IO.blocking {
-              val blob     = bufferStore.getBlob(container, name)
-              val metadata = blob.getMetadata()
-              metadata.setContainer(bucket)
-              metadata.setName(ProxyBlobStore.hashToKey(hash))
-              metadata.getContentMetadata().setContentType(contenType)
-              delegate().putBlob(
-                bucket,
-                blob,
-                new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 5 * 1024 * 1024)
-              );
-            }
-            _ <- db.putMetadata(hash, md5, size, eTag, contenType)
-          } yield eTag
-      }
-      .flatMap { eTag =>
-        for {
-          _ <- db.putMapping(identity, container, name, hash)
-          _ <- IO.blocking(bufferStore.removeBlob(container, name))
-        } yield eTag
-      }
+    db.withAdvisoryLock(hash) {
+      db.getMetadata(hash)
+        .flatMap {
+          case Some(metadata) => IO.pure(metadata.eTag)
+          case None =>
+            for {
+              eTag <- IO.blocking {
+                val blob     = bufferStore.getBlob(container, name)
+                val metadata = blob.getMetadata()
+                metadata.setContainer(bucket)
+                metadata.setName(ProxyBlobStore.hashToKey(hash))
+                metadata.getContentMetadata().setContentType(contenType)
+                delegate().putBlob(
+                  bucket,
+                  blob,
+                  new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 5 * 1024 * 1024)
+                );
+              }
+              _ <- db.putMetadata(hash, md5, size, eTag, contenType)
+            } yield eTag
+        }
+    }.flatMap { eTag =>
+      for {
+        _ <- db.putMapping(identity, container, name, hash)
+        _ <- IO.blocking(bufferStore.removeBlob(container, name))
+      } yield eTag
+    }
   }
 
   /** javadoc says options are ignored, so we ignore them too
