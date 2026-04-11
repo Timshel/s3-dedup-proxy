@@ -28,9 +28,12 @@ case class Cleanup(
   def purge(): IO[Int] = {
     log.debug("Running purge job")
     for {
-      hashes <- db.getDangling(1000)
-      _      <- client.deleteKeys(hashes)
-      count  <- db.delMetadatas(hashes)
+      hashes    <- db.getDangling(1000)
+      failedKeys <- client.deleteKeys(hashes)
+      successHashes = if (failedKeys.isEmpty) hashes
+                      else hashes.filterNot(h => failedKeys.contains(ProxyBlobStore.hashToKey(h)))
+      _ = if (failedKeys.nonEmpty) log.warn(s"${failedKeys.size} objects failed to delete from S3, skipping their metadata removal")
+      count <- db.delMetadatas(successHashes)
       _ = log.debug(s"Purged $count files")
     } yield count
   }

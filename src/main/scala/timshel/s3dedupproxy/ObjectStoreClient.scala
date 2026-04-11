@@ -16,7 +16,10 @@ case class ObjectStoreClient(
     .credentials(config.accessKeyId, config.secretAccessKey)
     .build()
 
-  def deleteKeys(hashes: List[HashCode]): IO[Unit] = IO.blocking {
+  /** Deletes the given hashes from the backend bucket.
+    * Returns the set of object keys that failed to delete.
+    */
+  def deleteKeys(hashes: List[HashCode]): IO[Set[String]] = IO.blocking {
     if (hashes.nonEmpty) {
       val objects = new java.util.LinkedList[DeleteObject]();
 
@@ -24,10 +27,17 @@ case class ObjectStoreClient(
         objects.add(new DeleteObject(ProxyBlobStore.hashToKey(h)))
       }
 
+      val failedKeys = scala.collection.mutable.Set[String]()
+
       client.removeObjects(RemoveObjectsArgs.builder().bucket(config.bucket).objects(objects).build()).forEach { r =>
         val e = r.get()
         log.error(s"Failed to delete ${e.objectName}, err ${e.code}: ${e.message}")
+        failedKeys.add(e.objectName())
       }
+
+      failedKeys.toSet
+    } else {
+      Set.empty[String]
     }
   }
 }
