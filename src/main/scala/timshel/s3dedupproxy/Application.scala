@@ -57,7 +57,7 @@ object Application extends IOApp {
       cleanup    <- Cleanup.scheduled(config, database, dispatcher)
       httpApp = org.http4s.server
         .Router(
-          "/proxy/" -> RedirectionController(config.backend, database).routes,
+          "/proxy/" -> RedirectionController(config.backend, database, config.users.keySet).routes,
           "/api/"   -> ApiController(cleanup).routes
         )
         .orNotFound
