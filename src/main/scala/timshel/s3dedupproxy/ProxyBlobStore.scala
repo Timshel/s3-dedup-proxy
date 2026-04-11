@@ -297,25 +297,32 @@ class ProxyBlobStore(
       size: Long,
       contenType: String
   ): IO[String] = {
+    def uploadFromBuffer: IO[String] = for {
+      eTag <- IO.blocking {
+        val blob     = bufferStore.getBlob(container, name)
+        val metadata = blob.getMetadata()
+        metadata.setContainer(bucket)
+        metadata.setName(ProxyBlobStore.hashToKey(hash))
+        metadata.getContentMetadata().setContentType(contenType)
+        delegate().putBlob(
+          bucket,
+          blob,
+          new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 5 * 1024 * 1024)
+        );
+      }
+      _ <- db.putMetadata(hash, md5, size, eTag, contenType)
+    } yield eTag
+
     db.getMetadata(hash)
       .flatMap {
-        case Some(metadata) => IO.pure(metadata.eTag)
-        case None =>
-          for {
-            eTag <- IO.blocking {
-              val blob     = bufferStore.getBlob(container, name)
-              val metadata = blob.getMetadata()
-              metadata.setContainer(bucket)
-              metadata.setName(ProxyBlobStore.hashToKey(hash))
-              metadata.getContentMetadata().setContentType(contenType)
-              delegate().putBlob(
-                bucket,
-                blob,
-                new PutOptions().setBlobAccess(BlobAccess.PUBLIC_READ).multipart(size > 5 * 1024 * 1024)
-              );
-            }
-            _ <- db.putMetadata(hash, md5, size, eTag, contenType)
-          } yield eTag
+        case Some(metadata) =>
+          IO.blocking(delegate().blobExists(bucket, ProxyBlobStore.hashToKey(hash))).flatMap {
+            case true  => IO.pure(metadata.eTag)
+            case false =>
+              log.warn(s"Backend blob missing for hash $hash, re-uploading from buffer")
+              uploadFromBuffer
+          }
+        case None => uploadFromBuffer
       }
       .flatMap { eTag =>
         for {
