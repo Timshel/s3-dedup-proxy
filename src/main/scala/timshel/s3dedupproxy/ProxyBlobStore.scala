@@ -514,7 +514,7 @@ class ProxyBlobStore(
   def mapMetadata(mapping: Mapping): BlobMetadata = {
     val metadata = new org.jclouds.io.payloads.BaseMutableContentMetadata()
     metadata.setContentType(mapping.contentType)
-    metadata.setContentMD5(mapping.md5)
+    metadata.setContentMD5(mapping.md5.asBytes())
     metadata.setContentLength(mapping.size)
 
     val bm = new org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl()
