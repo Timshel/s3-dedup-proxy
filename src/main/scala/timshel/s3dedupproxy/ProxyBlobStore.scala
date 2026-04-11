@@ -37,6 +37,7 @@ import org.jclouds.domain.LocationScope;
 import org.jclouds.io.Payload;
 import org.jclouds.io.payloads.FilePayload;
 import scala.util.Using
+import java.util.UUID
 
 import timshel.s3dedupproxy.Database;
 
@@ -265,6 +266,7 @@ class ProxyBlobStore(
     log.debug(s"putBlob($container, $blob)")
     val name       = blob.getMetadata().getName()
     val contenType = Option(blob.getMetadata().getContentMetadata().getContentType()).getOrElse("application/octet-stream")
+    val bufferKey  = UUID.randomUUID().toString
 
     val p = (for {
       _ <- ensureContainerExists(container)
@@ -275,15 +277,17 @@ class ProxyBlobStore(
         val md5     = new com.google.common.hash.HashingInputStream(ProxyBlobStore.MD5, his)
         blob.setPayload(md5)
         blob.getMetadata().getContentMetadata().setContentType(contenType)
+        blob.getMetadata().setName(bufferKey)
         bufferStore.putBlob(container, blob)
         (counter.getCount(), his.hash(), md5.hash())
       }
-      eTag <- processBufferDedup(container, name, hash, md5, size, contenType)
+      eTag <- processBufferDedup(container, name, bufferKey, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
         IO.blocking {
-          log.error(s"Failed to putBlob($container, $blob): $e")
-        }
+          log.error(s"Failed to putBlob($container, $name): $e")
+          bufferStore.removeBlob(container, bufferKey)
+        }.handleErrorWith(_ => IO.unit)
       }
 
     dispatcher.unsafeRunSync(p)
@@ -292,6 +296,7 @@ class ProxyBlobStore(
   def processBufferDedup(
       container: String,
       name: String,
+      bufferKey: String,
       hash: HashCode,
       md5: HashCode,
       size: Long,
@@ -303,7 +308,7 @@ class ProxyBlobStore(
         case None =>
           for {
             eTag <- IO.blocking {
-              val blob     = bufferStore.getBlob(container, name)
+              val blob     = bufferStore.getBlob(container, bufferKey)
               val metadata = blob.getMetadata()
               metadata.setContainer(bucket)
               metadata.setName(ProxyBlobStore.hashToKey(hash))
@@ -320,7 +325,7 @@ class ProxyBlobStore(
       .flatMap { eTag =>
         for {
           _ <- db.putMapping(identity, container, name, hash)
-          _ <- IO.blocking(bufferStore.removeBlob(container, name))
+          _ <- IO.blocking(bufferStore.removeBlob(container, bufferKey))
         } yield eTag
       }
   }
@@ -384,17 +389,19 @@ class ProxyBlobStore(
     val container  = mpu.containerName()
     val name       = mpu.blobName()
     val contenType = Option(mpu.blobMetadata().getContentMetadata().getContentType()).getOrElse("application/octet-stream")
+    val bufferKey  = name
 
     val p = (for {
       completed <- IO.blocking(bufferStore.completeMultipartUpload(mpu, parts))
       _ = log.debug(s"Completed upload to bufferStore: $completed")
-      (size, hash, md5) <- bufferStoreBlobHash(container, name)
-      eTag              <- processBufferDedup(container, name, hash, md5, size, contenType)
+      (size, hash, md5) <- bufferStoreBlobHash(container, bufferKey)
+      eTag              <- processBufferDedup(container, name, bufferKey, hash, md5, size, contenType)
     } yield eTag)
       .onError { e =>
         IO.blocking {
           log.error(s"Failed to completeMultipartUpload(${mpu.id()}): $e")
-        }
+          bufferStore.removeBlob(container, bufferKey)
+        }.handleErrorWith(_ => IO.unit)
       }
 
     dispatcher.unsafeRunSync(p)
