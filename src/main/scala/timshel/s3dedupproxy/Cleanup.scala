@@ -19,11 +19,10 @@ import org.slf4j.LoggerFactory;
 case class Cleanup(
     db: Database,
     client: ObjectStoreClient,
-    dispatcher: Dispatcher[IO]
+    dispatcher: Dispatcher[IO],
+    sched: Scheduler
 ) {
   import Cleanup.log
-
-  val sched = new StdSchedulerFactory().getScheduler();
 
   def purge(): IO[Int] = {
     log.debug("Running purge job")
@@ -55,7 +54,8 @@ object Cleanup {
     import scala.jdk.CollectionConverters._
 
     val client  = ObjectStoreClient(config.backend)
-    val cleanup = Cleanup(db, client, dispatcher)
+    val sched   = new StdSchedulerFactory().getScheduler()
+    val cleanup = Cleanup(db, client, dispatcher, sched)
 
     val job = newJob(classOf[Cleanup.CleanupJob])
       .withIdentity("cleaner", "cleaners")
