@@ -104,13 +104,16 @@ object ProxyBlobStore {
 
     val blobStore = createBlobStore(config.backend)
 
-    s3Proxy.setBlobStoreLocator((identity, container, blob) => {
-      val proxyBlobStore =
-        ProxyBlobStore(createBufferStore(identity), blobStore, identity, config.backend.bucket, db, dispatcher)
+    val proxyCache = new java.util.concurrent.ConcurrentHashMap[String, ProxyBlobStore]()
 
+    s3Proxy.setBlobStoreLocator((identity, container, blob) => {
       config.users.get(identity) match {
-        case Some(secret) => Maps.immutableEntry(secret, proxyBlobStore);
-        case None         => throw new SecurityException("Access denied")
+        case Some(secret) =>
+          val proxyBlobStore = proxyCache.computeIfAbsent(identity, _ =>
+            ProxyBlobStore(createBufferStore(identity), blobStore, identity, config.backend.bucket, db, dispatcher)
+          )
+          Maps.immutableEntry(secret, proxyBlobStore);
+        case None => throw new SecurityException("Access denied")
       }
     });
 
