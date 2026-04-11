@@ -339,11 +339,11 @@ class ProxyBlobStore(
         case Some(hash) => hash
         case None       => throw new IllegalArgumentException("Not found")
       }
-      _ <- db.putMapping(identity, toContainer, toName, hash)
       metadata <- db.getMetadata(hash).map {
         case Some(metadata) => metadata
         case None           => throw new IllegalArgumentException("Not found")
       }
+      _ <- db.putMapping(identity, toContainer, toName, hash)
     } yield metadata.eTag
 
     dispatcher.unsafeRunSync(p)
