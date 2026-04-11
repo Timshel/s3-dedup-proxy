@@ -1,10 +1,6 @@
 *
 
-!.git
-!compose
-!s3proxy
 !project
 !src
-!.gitmodules
 !build.sbt
 !docker.application.conf
