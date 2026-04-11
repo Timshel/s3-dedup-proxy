@@ -35,7 +35,14 @@ case class ApiController(
 ) {
   import RedirectionController._
 
-  val routes = org.http4s.HttpRoutes.of[IO] { case _ @DELETE -> Root / "purge" =>
-    cleanup.purge().flatMap { count => Ok(s"$count deleted") }
+  val routes = org.http4s.HttpRoutes.of[IO] {
+    case req @DELETE -> Root / "purge" =>
+      val remoteAddr = req.remoteAddr.map(_.toUriString).getOrElse("")
+      val isLocal    = remoteAddr == "127.0.0.1" || remoteAddr == "::1" || remoteAddr == "0:0:0:0:0:0:0:1"
+      if (isLocal) {
+        cleanup.purge().flatMap { count => Ok(s"$count deleted") }
+      } else {
+        IO.pure(Response[IO](Status.Forbidden))
+      }
   }
 }
