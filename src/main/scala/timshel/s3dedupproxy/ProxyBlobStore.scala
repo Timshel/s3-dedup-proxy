@@ -256,10 +256,8 @@ class ProxyBlobStore(
   }
 
   private def ensureContainerExists(container: String): IO[Unit] = IO.blocking {
-    if (!bufferStore.containerExists(container)) {
-      bufferStore.createContainerInLocation(null, container)
-    }
-  }
+    bufferStore.createContainerInLocation(null, container)
+  }.void
 
   override def putBlob(container: String, blob: Blob): String = {
     log.debug(s"putBlob($container, $blob)")
