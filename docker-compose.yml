@@ -16,7 +16,7 @@ services:
 
   Postgres:
     container_name: s3dedupproxy_postgres
-    image: postgres:17.2
+    image: postgres:18
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d s3proxy -U s3proxy"]
       start_period: 20s
@@ -30,7 +30,7 @@ services:
       - POSTGRES_PASSWORD=s3proxy
       - POSTGRES_DB=s3proxy
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - ./postgres_18_data:/var/lib/postgresql
     restart: unless-stopped
 
   S3Proxy:
