@@ -21,7 +21,7 @@ case class RedirectionController(
       case None => IO.pure(Response[IO](Status.NotFound))
       case Some(hash) =>
         val path = ProxyBlobStore.hashToKey(hash)
-        PermanentRedirect(Location(config.publicHost.addSegment(path)))
+        PermanentRedirect(Location(config.publicHost.addPath(path)))
     }
   }
 }
