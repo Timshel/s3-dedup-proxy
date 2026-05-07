@@ -69,4 +69,16 @@ class TestDatabase(
 
   def delDanglingMetadatas(hashes: List[HashCode]): IO[Int] = pool.use(super.delDanglingMetadatas(hashes)(_))
 
+  def testDelimitedMappings(
+      user_name: String,
+      bucket: String,
+      delimiter: Delimiter,
+      prefix: Option[Prefix] = None,
+      marker: Option[Marker] = None,
+      maxResults: Option[Int] = None
+  ): IO[(List[(String, Option[HashCode], String)], Option[String])] = {
+    super.getDelimitedMappings(user_name, bucket, delimiter, prefix, marker, maxResults).map { case (values, last) =>
+      values.map { case (deli, mapping, key) => (deli, mapping.map(_.hash), key) } -> last
+    }
+  }
 }

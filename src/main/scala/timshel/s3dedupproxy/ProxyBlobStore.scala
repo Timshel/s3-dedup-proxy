@@ -144,6 +144,17 @@ object ProxyBlobStore {
       }
     )
   }
+
+  object Delimiter {
+    def apply(lco: ListContainerOptions): Option[Database.Delimiter] =
+      Option(lco.getDelimiter()).filter(_.nonEmpty).map(Database.Delimiter.apply)
+  }
+  object Marker {
+    def apply(lco: ListContainerOptions): Option[Database.Marker] = Option(lco.getMarker()).map(Database.Marker.apply)
+  }
+  object Prefix {
+    def apply(lco: ListContainerOptions): Option[Database.Prefix] = Option(lco.getPrefix()).map(Database.Prefix.apply)
+  }
 }
 
 class ProxyBlobStore(
@@ -154,7 +165,7 @@ class ProxyBlobStore(
     db: Database,
     dispatcher: Dispatcher[IO]
 ) extends ForwardingBlobStore(blobStore) {
-  import ProxyBlobStore.log
+  import ProxyBlobStore.*
 
   def getMapKey(container: String, name: String): IO[Option[String]] = {
     db.getMappingHash(identity, container, name).map { hco =>
@@ -561,23 +572,44 @@ class ProxyBlobStore(
     bm
   }
 
-  def mapMetadatas: PartialFunction[(List[Mapping], Option[String]), PageSet[BlobMetadata]] = { case (mappings, marker) =>
-    import scala.jdk.CollectionConverters._
-    val iter: java.lang.Iterable[BlobMetadata] = mappings.map(mapMetadata).asJava
-    new org.jclouds.blobstore.domain.internal.PageSetImpl[BlobMetadata](iter, marker.map(_.toString).getOrElse(null))
+  def mapDelimited: PartialFunction[(String, Option[Mapping], String), BlobMetadata] = {
+    case (_, Some(mapping), _) => mapMetadata(mapping)
+    case (delimited, None, _) =>
+      val bm = new org.jclouds.blobstore.domain.internal.MutableBlobMetadataImpl()
+      bm.setContentMetadata(new org.jclouds.io.payloads.BaseMutableContentMetadata())
+      bm.setType(org.jclouds.blobstore.domain.StorageType.RELATIVE_PATH)
+      bm.setName(delimited)
+      bm
+  }
+
+  def mapMetadatas[T](mapMetadata: T => BlobMetadata): PartialFunction[(List[T], Option[String]), PageSet[BlobMetadata]] = {
+    case (mappings, marker) =>
+      import scala.jdk.CollectionConverters._
+      val iter: java.lang.Iterable[BlobMetadata] = mappings.map(mapMetadata).asJava
+      new org.jclouds.blobstore.domain.internal.PageSetImpl[BlobMetadata](iter, marker.map(_.toString).getOrElse(null))
   }
 
   override def list(container: String): PageSet[BlobMetadata] = {
     log.debug(s"list($container)")
-    val p = db.getMappings(identity, container).map(mapMetadatas)
+    val p = db.getMappings(identity, container).map(mapMetadatas(mapMetadata))
     dispatcher.unsafeRunSync(p)
   }
 
   override def list(container: String, options: ListContainerOptions): PageSet[BlobMetadata] = {
     log.debug(s"list($container, $options)")
-    val p = db
-      .getMappings(identity, container, Option(options.getPrefix), Option(options.getMarker), Option(options.getMaxResults))
-      .map(mapMetadatas)
+
+    val p = Delimiter(options) match {
+      case None =>
+        db
+          .getMappings(identity, container, Prefix(options), Marker(options), Option(options.getMaxResults))
+          .map(mapMetadatas(mapMetadata))
+
+      case Some(deli) =>
+        db
+          .getDelimitedMappings(identity, container, deli, Prefix(options), Marker(options), Option(options.getMaxResults))
+          .map(mapMetadatas(mapDelimited))
+    }
+
     dispatcher.unsafeRunSync(p)
   }
 

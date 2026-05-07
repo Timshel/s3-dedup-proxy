@@ -10,6 +10,7 @@ import skunk._
 import timshel.s3dedupproxy.{Application, Database, Metadata}
 
 class PgIntegrationTests extends CatsEffectSuite {
+  import Database.*
 
   val database = ResourceSuiteLocalFixture(
     "application",
@@ -187,6 +188,70 @@ class PgIntegrationTests extends CatsEffectSuite {
         _ <- assertIO(database.countMappings("A", "bucket"), 3L)
         _ <- assertIO(database.delMappings("A", "bucket", "prefix"), 2)
         _ <- assertIO(database.delMappings("A", "bucket", "wrefix"), 1)
+
+        _ <- database.putMapping("A", "bucket", "prefix1", hashCode)
+        _ <- database.putMapping("A", "bucket", "prefix2", hashCode)
+        _ <- database.putMapping("A", "bucket", "prefix2/toto/file1", hashCode)
+        _ <- database.putMapping("A", "bucket", "prefix2/tata/file2", hashCode)
+        _ <- assertIO(
+          database.testDelimitedMappings("A", "bucket", Delimiter("/")),
+          (
+            List(
+              ("prefix1", Some(hashCode), "prefix1"),
+              ("prefix2", Some(hashCode), "prefix2"),
+              ("prefix2/", None, "prefix2/toto/file1")
+            ),
+            None
+          )
+        )
+        _ <- assertIO(
+          database.testDelimitedMappings("A", "bucket", Delimiter("/"), maxResults = Some(2)),
+          (
+            List(
+              ("prefix1", Some(hashCode), "prefix1"),
+              ("prefix2", Some(hashCode), "prefix2")
+            ),
+            Some("prefix2")
+          )
+        )
+        _ <- assertIO(
+          database.testDelimitedMappings("A", "bucket", Delimiter("/"), marker = Some(Marker("prefix2")), maxResults = Some(2)),
+          (
+            List(("prefix2/", None, "prefix2/toto/file1")),
+            None
+          )
+        )
+        _ <- assertIO(
+          database.testDelimitedMappings("A", "bucket", Delimiter("/"), marker = Some(Marker("prefix1")), maxResults = Some(2)),
+          (
+            List(
+              ("prefix2", Some(hashCode), "prefix2"),
+              ("prefix2/", None, "prefix2/toto/file1")
+            ),
+            Some("prefix2/toto/file1")
+          )
+        )
+        _ <- assertIO(
+          database.testDelimitedMappings("A", "bucket", Delimiter("/"), marker = Some(Marker("prefix2/toto/file1"))),
+          (List(), None)
+        )
+        _ <- assertIO(
+          database
+            .testDelimitedMappings("A", "bucket", Delimiter("/"), Some(Prefix("prefix2/")), maxResults = Some(2)),
+          (
+            List(
+              ("prefix2/tata/", None, "prefix2/tata/file2"),
+              ("prefix2/toto/", None, "prefix2/toto/file1")
+            ),
+            Some("prefix2/toto/file1")
+          )
+        )
+        _ <- assertIO(
+          database
+            .testDelimitedMappings("A", "bucket", Delimiter("/"), Some(Prefix("prefix2/tata/")), maxResults = Some(2)),
+          (List(("prefix2/tata/file2", Some(hashCode), "prefix2/tata/file2")), None)
+        )
+        _ <- assertIO(database.delMappings("A", "bucket"), 4)
 
         _ <- assertIO(database.delDanglingMetadatas(List(hashCode)), 1)
         _ <- assertIO(database.countMappings(hashCode), 0L)

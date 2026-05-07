@@ -56,7 +56,7 @@ object UserRegistry {
     pureconfig.ConfigSource.file(path).load[Map[String, String]] match {
       case Right(config) => Some(config)
       case Left(e) =>
-        if( Files.exists(path) ) {
+        if (Files.exists(path)) {
           log.error(s"Failed to parse users file (permission will not be modified)", e)
           None
         } else {

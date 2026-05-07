@@ -33,6 +33,26 @@ case class Mapping(
 object Database {
   val log = com.typesafe.scalalogging.Logger(classOf[Database])
 
+  opaque type Delimiter = String
+  opaque type Marker    = String
+  opaque type Prefix    = String
+
+  object Delimiter:
+    def apply(s: String): Delimiter = s
+
+  object Marker:
+    def apply(s: String): Marker = s
+    def empty: Marker            = ""
+
+  object Prefix:
+    def apply(s: String): Prefix = s
+    def empty: Prefix            = ""
+    def len(p: Prefix)           = p.length()
+
+  val delim: Encoder[Delimiter] = text
+  val marker: Encoder[Marker]   = text
+  val prefix: Encoder[Prefix]   = text
+
   val void = new Decoder[Void] {
     def types                                         = List(skunk.data.Type.void)
     def decode(offset: Int, ss: List[Option[String]]) = Right(Void)
@@ -312,9 +332,9 @@ case class Database(
     }
   }
 
-  def withMaker(maxResults: Int)(mappings: List[Mapping]): (List[Mapping], Option[String]) = {
+  def withMaker[T](maxResults: Int)(last: T => String)(mappings: List[T]): (List[T], Option[String]) = {
     if (mappings.size == maxResults) {
-      (mappings, mappings.lastOption.map(_.key))
+      (mappings, mappings.lastOption.map(last))
     } else (mappings, None)
   }
 
@@ -334,7 +354,7 @@ case class Database(
       }
   }
 
-  val getMappingsQ: Query[(String, String, String, String, Int), Mapping] =
+  val getMappingsQ: Query[(String, String, Prefix, Marker, Int), Mapping] =
     sql"""
       SELECT
           file_mappings.uuid, file_mappings.bucket, file_mappings.file_key,
@@ -344,8 +364,8 @@ case class Database(
           INNER JOIN file_metadata ON file_metadata.hash = file_mappings.hash
         WHERE user_name = $text
           AND file_mappings.bucket = $text
-          AND starts_with(file_mappings.file_key, $text)
-          AND file_mappings.file_key > $text
+          AND starts_with(file_mappings.file_key, $prefix)
+          AND file_mappings.file_key > $marker
         ORDER BY file_mappings.file_key ASC
         LIMIT $int4
     """.query(mappingD)
@@ -353,12 +373,12 @@ case class Database(
   def getMappings(
       user_name: String,
       bucket: String,
-      prefix: Option[String] = None,
-      marker: Option[String] = None,
+      prefix: Option[Prefix] = None,
+      marker: Option[Marker] = None,
       maxResults: Option[Int] = None
   ): IO[(List[Mapping], Option[String])] = {
-    val after = marker.getOrElse("")
-    val pre   = prefix.getOrElse("")
+    val after = marker.getOrElse(Marker.empty)
+    val pre   = prefix.getOrElse(Prefix.empty)
     val limit = maxResults.getOrElse(PAGE_SIZE)
 
     pool
@@ -366,7 +386,72 @@ case class Database(
         _.prepare(getMappingsQ)
           .flatMap { pc => pc.stream((user_name, bucket, pre, after, limit), limit).compile.toList }
       }
-      .map(withMaker(limit))
+      .map(withMaker(limit)(_.key))
+  }
+
+  val getDelimitedQ: Query[(Prefix, Int, Delimiter, String, String, Prefix, Marker, Int), ((String, Option[Mapping]), String)] =
+    sql"""
+    WITH delimited as (
+      SELECT
+          $prefix || split_part(substring(file_mappings.file_key from  $int4), $delim, 1) as delimited,
+          file_mappings.file_key, file_mappings.uuid , file_mappings.bucket ,
+          file_metadata.hash, file_metadata.md5, file_metadata.size, file_metadata.etag, file_metadata.content_type,
+          file_mappings.created, file_mappings.updated
+        FROM file_mappings
+          INNER JOIN file_metadata ON file_metadata.hash = file_mappings.hash
+        WHERE user_name = $text
+          AND file_mappings.bucket = $text
+          AND starts_with(file_mappings.file_key, $prefix)
+          AND file_mappings.file_key > $marker
+      )
+
+      SELECT delimited,
+          CASE WHEN delimited=file_key THEN uuid ELSE null END AS uuid,
+          max(CASE WHEN delimited=file_key THEN bucket ELSE null END) AS bucket,
+          max(CASE WHEN delimited=file_key THEN file_key ELSE null END) AS file_key,
+          CASE WHEN delimited=file_key THEN hash ELSE null END AS hash,
+          CASE WHEN delimited=file_key THEN md5 ELSE null END AS md5,
+          max(CASE WHEN delimited=file_key THEN size ELSE null END) AS size,
+          max(CASE WHEN delimited=file_key THEN etag ELSE null END) AS etag,
+          max(CASE WHEN delimited=file_key THEN content_type ELSE null END) AS content_type,
+          max(CASE WHEN delimited=file_key THEN created ELSE null END) AS created,
+          max(CASE WHEN delimited=file_key THEN updated ELSE null END) AS updated,
+          max(file_key) AS full_key
+        FROM delimited
+        GROUP BY
+          delimited,
+          CASE WHEN delimited=file_key THEN uuid ELSE null END,
+          CASE WHEN delimited=file_key THEN hash ELSE null END,
+          CASE WHEN delimited=file_key THEN md5 ELSE null END
+        ORDER BY file_key ASC
+        LIMIT $int4
+    """.query(text ~ mappingD.opt ~ text)
+
+  def getDelimitedMappings(
+      user_name: String,
+      bucket: String,
+      delimiter: Delimiter,
+      prefix: Option[Prefix] = None,
+      marker: Option[Marker] = None,
+      maxResults: Option[Int] = None
+  ): IO[(List[(String, Option[Mapping], String)], Option[String])] = {
+    val after = marker.getOrElse(Marker.empty)
+    val pre   = prefix.getOrElse(Prefix.empty)
+    val limit = maxResults.getOrElse(PAGE_SIZE)
+
+    pool
+      .use {
+        _.prepare(getDelimitedQ).flatMap { pc =>
+          pc.stream((pre, Prefix.len(pre) + 1, delimiter, user_name, bucket, pre, after, limit), limit)
+            .map {
+              case ((del, None), key)    => (del + delimiter, None, key)
+              case ((del, mapping), key) => (del, mapping, key)
+            }
+            .compile
+            .toList
+        }
+      }
+      .map(withMaker(limit)(_._3))
   }
 
 }
