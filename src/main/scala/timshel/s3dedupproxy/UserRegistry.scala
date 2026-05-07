@@ -33,12 +33,14 @@ case class Watcher(users: TrieMap[String, String], conf: HashSet[String], var ca
           case None => ()
           case Some(wk) =>
             log.debug(s"Polling returned $wk")
-            wk.pollEvents().asScala.exists { evt =>
+            val isUsersFileEvent = wk.pollEvents().asScala.exists { evt =>
               evt.asInstanceOf[WatchEvent[Path]].context() == fileName
             }
-            // Small delay to let the file finish writing
-            Thread.sleep(200)
-            parseAndMerge(users, conf, path)
+            if (isUsersFileEvent) {
+              // Small delay to let the file finish writing
+              Thread.sleep(200)
+              parseAndMerge(users, conf, path)
+            }
             wk.reset()
         }
       }
