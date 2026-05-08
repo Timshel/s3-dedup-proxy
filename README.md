@@ -69,7 +69,7 @@ It deletes up to 1000 files (the maximum for a single call of `RemoveObjects`).
 
 ## Docker demo
 
-The `--build` ensure that the image is up to date (In case of `Could not connect to 127.0.0.1:3306` error just retry, the DB was just not completely up).
+The `--build` ensure that the image is up to date.
 
 ```bash
 > docker compose up --build S3DedupProxy
@@ -81,49 +81,54 @@ This will run three services:
 - `Postgres`: the database to store the file metadata (binded on 3306)
 - `S3Proxy`: used as local S3 store (binded on 8080)
 
-You can then interact with the proxy and store using [MinIO client](https://min.io/docs/minio/linux/reference/minio-mc.html).
+You can then interact with the proxy and store using [rclone](https://min.io/docs/minio/linux/reference/minio-mc.html).
+
+With the following `~/.config/rclone/rclone.conf`
 
 ```config
-{
-    "version": "10",
-    "aliases": {
-        "store": {
-            "url": "http://127.0.0.1:80",
-            "api": "S3v4",
-            "path": "auto"
-        },
-        "tenant1": {
-            "url": "http://127.0.0.1:23278",
-            "accessKey": "tenant1",
-            "secretKey": "ff54fae017ebe20356223ea016d1e2e867b7f73aaba775fe48ed65d1f1fecb87",
-            "api": "S3v4",
-            "path": "auto"
-        },
-        "tenant2": {
-            "url": "http://127.0.0.1:23278",
-            "accessKey": "tenant2",
-            "secretKey": "25ca6d3f04906bfc05a3f2c7ce6b5569ec841ee0ef241a886f34687bbafee7cc",
-            "api": "S3v4",
-            "path": "auto"
-        },
-    }
-}
+[store]
+type = s3
+provider = Other
+endpoint = http://127.0.0.1:80
+acl = private
+
+[tenant1]
+type = s3
+provider = Other
+access_key_id = tenant1
+secret_access_key = ff54fae017ebe20356223ea016d1e2e867b7f73aaba775fe48ed65d1f1fecb87
+endpoint = http://127.0.0.1:23278
+
+[tenant2]
+type = s3
+provider = Other
+access_key_id = tenant2
+secret_access_key = 25ca6d3f04906bfc05a3f2c7ce6b5569ec841ee0ef241a886f34687bbafee7cc
+endpoint = http://127.0.0.1:23278
 ```
 
-By default the `test` user must write in the `test` bucket, ex:
+Example to show deduplication:
 
 ```bash
-> mc ls store/mastodon/
-> mc cp file1 tenant1/bucket1/
-> mc ls -r store/mastodon/
-[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
-> mc cp file1 tenant2/bucket1/
-> mc ls -r store/mastodon/
-[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
-> mc cp file2 tenant1/bucket2/
-> mc ls -r store/mastodon/
-[2025-02-13 22:55:20 CET]  34KiB STANDARD blobs/8/bb7/8bb7bc575a4a5c18fe537e913f9869bcc016925fdf7c6fbedd3602915cb8341bd609c059f0397f6a42c89bc17baa294f432c3d7983d524d84a8749fd40d1d917
-[2025-02-13 22:53:04 CET]   151B STANDARD blobs/a/c52/ac52fd97d34cef83527d3b5022775db50b961127ab01b8f646b5040e6f42db02f7d1a6f46bdcd69527d0dbd7d7ee1d92c9681e60b604e2603986516b68541471
+> rclone ls store:mastodon
+> rclone copy LICENSE tenant1:bucket1
+> rclone ls tenant1:bucket1
+    34523 LICENSE
+> rclone ls store:mastodon
+    34523 blobs/5/c4c/5c4c4e351be428767a0f30cde8bf2687bc31580c408c4b8c6e3a6cf9e4fa0412aabb9037f216e46ad93b85481941dcabe726c1da3714ab5a737be71b12d2ff2d
+> sha512sum LICENSE
+    5c4c4e351be428767a0f30cde8bf2687bc31580c408c4b8c6e3a6cf9e4fa0412aabb9037f216e46ad93b85481941dcabe726c1da3714ab5a737be71b12d2ff2d  LICENSE
+> rclone copy LICENSE tenant2:bucket2
+> rclone ls tenant2:bucket2
+    34523 LICENSE
+> rclone ls store:mastodon
+    34523 blobs/5/c4c/5c4c4e351be428767a0f30cde8bf2687bc31580c408c4b8c6e3a6cf9e4fa0412aabb9037f216e46ad93b85481941dcabe726c1da3714ab5a737be71b12d2ff2d
+> rclone copy .dockerignore tenant1:bucket2
+> rclone ls tenant1:bucket2
+    90 .dockerignore
+> rclone ls store:mastodon
+    34523 blobs/5/c4c/5c4c4e351be428767a0f30cde8bf2687bc31580c408c4b8c6e3a6cf9e4fa0412aabb9037f216e46ad93b85481941dcabe726c1da3714ab5a737be71b12d2ff2d
+       90 blobs/a/3e5/a3e5ca067fc82837a4ae4de26c0c41a7a498173b07f3bb01d5667df4d050c225c3fcd403dd1f324e5559a1d7086885f9b98a1965f3dad787bb0df55403bededa
 ```
 
 Have fun

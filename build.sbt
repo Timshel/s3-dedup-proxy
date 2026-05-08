@@ -7,7 +7,7 @@ lazy val root = project
   .in(file("."))
   .settings(
     name         := "s3-dedup-proxy",
-    version      := "0.1.0-SNAPSHOT",
+    version      := "0.0.3",
     scalaVersion := scala3Version,
     scalacOptions ++= Seq(
       "-deprecation",
