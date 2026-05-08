@@ -6,11 +6,11 @@ import scala.collection.concurrent.TrieMap
 import scala.collection.immutable.HashSet
 import scala.jdk.CollectionConverters._
 
-case class UserRegistry(users: TrieMap[String, String], watcher: Option[(Watcher, FiberIO[Unit])] = None) {
+final case class UserRegistry(users: TrieMap[String, String], watcher: Option[(Watcher, FiberIO[Unit])] = None) {
   def get(identity: String): Option[String] = users.get(identity)
 }
 
-case class Watcher(users: TrieMap[String, String], conf: HashSet[String], var cancelled: Boolean = false) {
+final case class Watcher(users: TrieMap[String, String], conf: HashSet[String], var cancelled: Boolean = false) {
   import UserRegistry._
 
   def watch(path: Path) = IO
@@ -34,7 +34,7 @@ case class Watcher(users: TrieMap[String, String], conf: HashSet[String], var ca
           case Some(wk) =>
             log.debug(s"Polling returned $wk")
             val isUsersFileEvent = wk.pollEvents().asScala.exists { evt =>
-              evt.asInstanceOf[WatchEvent[Path]].context() == fileName
+              evt.asInstanceOf[WatchEvent[Path]].context().equals(fileName)
             }
             if (isUsersFileEvent) {
               // Small delay to let the file finish writing

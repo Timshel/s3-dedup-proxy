@@ -7,7 +7,7 @@ import org.http4s._
 import org.http4s.dsl.io._
 import org.http4s.headers.Location
 
-case class RedirectionController(
+final case class RedirectionController(
     config: BackendConfig,
     db: Database
 ) {
@@ -31,7 +31,7 @@ object RedirectionController {
   val log = com.typesafe.scalalogging.Logger(classOf[RedirectionController])
 }
 
-case class ApiController(
+final case class ApiController(
     cleanup: Cleanup
 ) {
   import RedirectionController._

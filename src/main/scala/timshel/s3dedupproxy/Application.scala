@@ -11,7 +11,7 @@ import skunk._
 import skunk.codec.all._
 import skunk.implicits._
 
-case class Application(
+final case class Application(
     config: GlobalConfig,
     database: Database,
     proxy: org.gaul.s3proxy.S3Proxy,
@@ -61,7 +61,7 @@ object Application extends IOApp {
     (for {
       userRegistry <- UserRegistry(config)
       pool         <- pool(config)
-      database = Database(pool)(using runtime)
+      database = Database(pool)(runtime)
       dispatcher <- Dispatcher.parallel[IO]
       proxy      <- ProxyBlobStore.createProxy(config, userRegistry, database, dispatcher)
       cleanup    <- Cleanup.scheduled(config, database, dispatcher)

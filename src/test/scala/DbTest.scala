@@ -233,7 +233,7 @@ class PgIntegrationTests extends CatsEffectSuite {
         )
         _ <- assertIO(
           database.testDelimitedMappings("A", "bucket", Delimiter("/"), marker = Some(Marker("prefix2/toto/file1"))),
-          (List(), None)
+          (List.empty, None)
         )
         _ <- assertIO(
           database

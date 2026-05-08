@@ -10,7 +10,7 @@ import timshel.s3dedupproxy.{Database, Metadata}
 
 class TestDatabase(
     pool: Resource[IO, Session[IO]]
-) extends Database(pool)(using IORuntime.global) {
+) extends Database(pool)(IORuntime.global) {
   import Database.*
 
   def apply(pool: Resource[IO, Session[IO]]): TestDatabase = new TestDatabase(pool)

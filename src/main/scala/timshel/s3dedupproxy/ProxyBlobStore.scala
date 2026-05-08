@@ -180,7 +180,7 @@ class ProxyBlobStore(
   }
 
   override def getContext(): BlobStoreContext = {
-    return delegate().getContext();
+    delegate().getContext();
   }
 
   override def blobBuilder(name: String): BlobBuilder = {
@@ -454,7 +454,7 @@ class ProxyBlobStore(
   }
 
   override def putBlob(container: String, blob: Blob, putOptions: PutOptions): String = {
-    return putBlob(container, blob);
+    putBlob(container, blob);
   }
 
   // TODO cleanup will be handled separatly

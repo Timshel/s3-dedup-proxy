@@ -14,6 +14,7 @@ lazy val root = project
       "-encoding", "UTF-8",
       "-feature",
       "-language:higherKinds",
+      // "-language:strictEquality",
       // "-explain",
     ),
     javaOptions += "-Duser.timezone=UTC",
@@ -48,5 +49,6 @@ lazy val root = project
 
       "org.scalameta"                   %% "munit"                      % "1.3.0" % Test,
       "org.typelevel"                   %% "munit-cats-effect"          % "2.2.0" % Test,
-    )
+    ),
+    // wartremoverWarnings ++= Warts.all,
   )

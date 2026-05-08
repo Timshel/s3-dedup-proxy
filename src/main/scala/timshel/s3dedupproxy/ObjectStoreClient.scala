@@ -5,7 +5,7 @@ import io.minio.{MinioClient, RemoveObjectsArgs};
 import io.minio.messages.DeleteObject;
 import com.google.common.hash.HashCode;
 
-case class ObjectStoreClient(
+final case class ObjectStoreClient(
     config: BackendConfig
 ) {
   import ObjectStoreClient._

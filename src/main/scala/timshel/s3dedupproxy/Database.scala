@@ -11,13 +11,13 @@ import skunk.implicits._
 import skunk.codec.all._
 import scala.reflect.TypeTest
 
-case class Metadata(
+final case class Metadata(
     size: Long,
     eTag: String,
     contentType: String
 )
 
-case class Mapping(
+final case class Mapping(
     uuid: UUID,
     bucket: String,
     key: String,
@@ -71,7 +71,7 @@ object Database {
 
 case class Database(
     pool: Resource[IO, Session[IO]]
-)(implicit runtime: IORuntime) {
+)(runtime: IORuntime) {
   import Database.*
 
   val lockQ: Query[Long, Void] = sql"SELECT pg_advisory_lock($int8)".query(void)

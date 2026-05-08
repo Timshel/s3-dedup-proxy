@@ -17,12 +17,12 @@ given uriReader: ConfigReader[Uri] = implicitly[ConfigReader[String]].emap { s =
   Uri.fromString(s).left.map { _ => pureconfig.error.CannotConvert(s, "Uri", "Impossible") }
 }
 
-case class API(
+final case class API(
     host: Host,
     port: Port
 ) derives ConfigReader
 
-case class Proxy(
+final case class Proxy(
     host: Host,
     port: Port,
     purge: CronExpression
@@ -30,7 +30,7 @@ case class Proxy(
   val uri = new URI("http", null, host.toString, port.value, null, null, null)
 }
 
-case class DBConfig(
+final case class DBConfig(
     host: Host,
     port: Port,
     user: String,
@@ -38,7 +38,7 @@ case class DBConfig(
     database: String
 ) derives ConfigReader
 
-case class BackendConfig(
+final case class BackendConfig(
     protocol: String,
     endpoint: String,
     virtualHost: Boolean,
@@ -48,7 +48,7 @@ case class BackendConfig(
     publicHost: Uri
 ) derives ConfigReader
 
-case class GlobalConfig(
+final case class GlobalConfig(
     api: API,
     proxy: Proxy,
     backend: BackendConfig,
