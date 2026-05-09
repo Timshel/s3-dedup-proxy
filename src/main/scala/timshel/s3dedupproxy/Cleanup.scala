@@ -75,7 +75,8 @@ object Cleanup {
   })(cleanup =>
     IO.blocking {
       log.info("Stopping cleanup scheduler")
-      cleanup.sched.shutdown(true);
+      cleanup.sched.shutdown(true)
+      cleanup.client.close()
     }
   )
 
