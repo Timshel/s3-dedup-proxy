@@ -16,6 +16,8 @@ final case class ObjectStoreClient(
     .credentials(config.accessKeyId, config.secretAccessKey)
     .build()
 
+  def close(): Unit = client.close()
+
   def deleteKeys(hashes: List[HashCode]): IO[(List[HashCode], List[HashCode])] = IO.blocking {
     import scala.jdk.CollectionConverters.IterableHasAsScala
 
