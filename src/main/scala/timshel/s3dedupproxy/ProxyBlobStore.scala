@@ -340,7 +340,10 @@ class ProxyBlobStore(
   ): IO[String] = {
     db.withAdvisoryLock(hash) { s =>
       db.checkMetadata(hash)(s).flatMap {
-        case Some(metadata) => IO.pure(metadata.eTag)
+        case Some(metadata) =>
+          for {
+            _ <- db.putMapping(identity, container, name, hash)(s)
+          } yield metadata.eTag
         case None =>
           for {
             eTag <- IO.blocking {
@@ -356,11 +359,11 @@ class ProxyBlobStore(
               );
             }
             _ <- db.putMetadata(hash, md5, size, eTag, contenType)(s)
+            _ <- db.putMapping(identity, container, name, hash)(s)
           } yield eTag
       }
     }.flatMap { eTag =>
       for {
-        _ <- db.putMapping(identity, container, name, hash)
         _ <- IO.blocking(bufferStore.removeBlob(container, name))
       } yield eTag
     }
