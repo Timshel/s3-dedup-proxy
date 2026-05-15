@@ -357,12 +357,11 @@ class ProxyBlobStore(
             }
             _ <- db.putMetadata(hash, md5, size, eTag, contenType)(s)
           } yield eTag
+      }.flatMap { eTag =>
+        db.putMapping(identity, container, name, hash)(s).map(_ => eTag)
       }
     }.flatMap { eTag =>
-      for {
-        _ <- db.putMapping(identity, container, name, hash)
-        _ <- IO.blocking(bufferStore.removeBlob(container, name))
-      } yield eTag
+      IO.blocking(bufferStore.removeBlob(container, name)).map(_ => eTag)
     }
   }
 
