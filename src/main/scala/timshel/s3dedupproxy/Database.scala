@@ -66,7 +66,10 @@ object Database {
   val metadataD: Decoder[Metadata] = (int8 ~ text ~ text).map { case s ~ e ~ ct => Metadata(s, e, ct) }
   val PAGE_SIZE                    = 100
 
-  def lockKey(hash: HashCode): Long = java.nio.ByteBuffer.wrap(hash.asBytes().takeRight(8)).getLong()
+  def lockKey(hash: HashCode): Long = {
+    val bytes = hash.asBytes()
+    java.nio.ByteBuffer.wrap(bytes, bytes.length - 8, 8).getLong()
+  }
 }
 
 case class Database(
