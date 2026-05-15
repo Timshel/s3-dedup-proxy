@@ -144,6 +144,13 @@ case class Database(
         }
     }
   }
+  def putMapping(user_name: String, bucket: String, file_key: String, hash: HashCode)(session: Session[IO]): IO[Completion] = {
+    session.prepare(putMappingC)
+      .flatMap { pc =>
+        pc.execute(user_name, bucket, file_key, hash, hash)
+      }
+  }
+
 
   def delMappingsC(count: Int): Command[List[(String, String, String)]] = {
     val enc = (text *: text *: text).values.list(count)
