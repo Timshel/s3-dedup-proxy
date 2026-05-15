@@ -29,9 +29,11 @@ case class Cleanup(
     log.debug("Running purge job")
     db.locksReleaseBlock { s =>
       for {
-        hashes         <- db.getDangling(1000)(s)
-        (successes, _) <- client.deleteKeys(hashes)
-        count          <- db.delDanglingMetadatas(successes)(s)
+        hashes  <- db.getDangling(1000)(s)
+        deleted <- db.delDanglingMetadatas(hashes)(s)
+        _       <- if (deleted.nonEmpty) client.deleteKeys(deleted).map(_ => ())
+                    else IO.pure(())
+        count = deleted.size
         _ = log.debug(s"Purged $count files")
       } yield count
     }

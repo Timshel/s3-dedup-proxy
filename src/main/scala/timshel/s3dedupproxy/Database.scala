@@ -66,7 +66,10 @@ object Database {
   val metadataD: Decoder[Metadata] = (int8 ~ text ~ text).map { case s ~ e ~ ct => Metadata(s, e, ct) }
   val PAGE_SIZE                    = 100
 
-  def lockKey(hash: HashCode): Long = java.nio.ByteBuffer.wrap(hash.asBytes().take(8)).getLong()
+  def lockKey(hash: HashCode): Long = {
+    val bytes = hash.asBytes()
+    java.nio.ByteBuffer.wrap(bytes, bytes.length - 8, 8).getLong()
+  }
 }
 
 case class Database(
@@ -79,7 +82,7 @@ case class Database(
   val unlockQ: Query[Long, Boolean] = sql"SELECT  pg_advisory_unlock($int8)".query(bool)
 
   /** Acquires a session scoped advisory lock keyed on the hash.
-    * Uses the first 8 bytes of the hash as the lock key for good distribution.
+    * Uses the last 8 bytes of the hash as the lock key to match the PostgreSQL hash_key() function.
     */
   def withAdvisoryLock[A](hash: HashCode)(body: Session[IO] => IO[A]): IO[A] = {
     val lockKey = Database.lockKey(hash)
@@ -276,27 +279,23 @@ case class Database(
     session.prepare(checkMetadataQ).flatMap { ps => ps.option(hashCode) }
   }
 
-  def delDanglingMetadatasC(count: Int): Command[(List[HashCode])] = {
+  def delDanglingMetadatasQ(count: Int): Query[List[HashCode], HashCode] = {
     sql"""
       DELETE FROM file_metadata
-      USING file_metadata as fm
-      LEFT JOIN file_mappings AS map ON fm.hash = map.hash
-      WHERE file_metadata.hash = fm.hash
-        AND fm.hash IN (${hashE.list(count)})
-        AND map.uuid IS NULL
-    """.command
+      WHERE file_metadata.hash IN (${hashE.list(count)})
+        AND NOT EXISTS (
+          SELECT 1 FROM file_mappings WHERE file_mappings.hash = file_metadata.hash
+        )
+      RETURNING hash
+    """.query(hashD)
   }
 
-  def delDanglingMetadatas(hashes: List[HashCode])(session: Session[IO]): IO[Int] = {
+  def delDanglingMetadatas(hashes: List[HashCode])(session: Session[IO]): IO[List[HashCode]] = {
     if (hashes.nonEmpty) {
       session
-        .prepare(delDanglingMetadatasC(hashes.size))
-        .flatMap { pc => pc.execute(hashes) }
-        .map {
-          case Completion.Delete(count) => count
-          case _                        => throw new AssertionError("delMetadatas execution should only return Delete")
-        }
-    } else IO.pure(0)
+        .prepare(delDanglingMetadatasQ(hashes.size))
+        .flatMap { pq => pq.stream(hashes, 1024).compile.toList }
+    } else IO.pure(List.empty)
   }
 
   val getDanglingQ: Query[Int, (HashCode, Void)] =

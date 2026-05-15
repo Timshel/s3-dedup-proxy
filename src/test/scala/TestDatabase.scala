@@ -67,7 +67,7 @@ class TestDatabase(
 
   def getDangling(limit: Int): IO[List[HashCode]] = locksReleaseBlock(super.getDangling(limit)(_))
 
-  def delDanglingMetadatas(hashes: List[HashCode]): IO[Int] = pool.use(super.delDanglingMetadatas(hashes)(_))
+  def delDanglingMetadatas(hashes: List[HashCode]): IO[Int] = pool.use(super.delDanglingMetadatas(hashes)(_)).map(_.size)
 
   def testDelimitedMappings(
       user_name: String,
