@@ -428,7 +428,7 @@ case class Database(
           CASE WHEN delimited=file_key THEN uuid ELSE null END,
           CASE WHEN delimited=file_key THEN hash ELSE null END,
           CASE WHEN delimited=file_key THEN md5 ELSE null END
-        ORDER BY file_key ASC
+        ORDER BY delimited ASC
         LIMIT $int4
     """.query(text ~ mappingD.opt ~ text)
 
